@@ -8,22 +8,25 @@ pub fn build(b: *std.Build) void {
         .optimize = b.standardOptimizeOption(.{}),
     });
 
-    // const zglfw = b.dependency("zglfw", .{});
-    // exe.root_module.addImport("zglfw", zglfw.module("root"));
-    // exe.linkLibrary(zglfw.artifact("glfw"));
+    const zglfw = b.dependency("zglfw", .{
+        .x11 = false,
+        .wayland = true,
+    });
+    exe.root_module.addImport("zglfw", zglfw.module("root"));
+    exe.linkLibrary(zglfw.artifact("glfw"));
 
-    // const zopengl = b.dependency("zopengl", .{});
-    // exe.root_module.addImport("zopengl", zopengl.module("root"));
+    const zopengl = b.dependency("zopengl", .{});
+    exe.root_module.addImport("zopengl", zopengl.module("root"));
 
-    // const zgui = b.dependency("zgui", .{
-    //     //.target = exe.target, // ?
-    //     .backend = .glfw_opengl3,
-    // });
-    // exe.root_module.addImport("zgui", zgui.module("root"));
-    // exe.linkLibrary(zgui.artifact("imgui"));
+    const zmath = b.dependency("zmath", .{});
+    exe.root_module.addImport("zmath", zmath.module("root"));
 
-    // const zmath = b.dependency("zmath", .{});
-    // exe.root_module.addImport("zmath", zmath.module("root"));
+    const zgui = b.dependency("zgui", .{
+        //.target = exe.target, // ?
+        .backend = .glfw_opengl3,
+    });
+    exe.root_module.addImport("zgui", zgui.module("root"));
+    exe.linkLibrary(zgui.artifact("imgui"));
 
     // const box2d = b.dependency("box2d", .{});
     // exe.root_module.addImport("box2d", box2d.module("root"));

@@ -1,0 +1,17 @@
+.{
+    .name = "game",
+    .version = "0.0.1-dev",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .dependencies = .{
+        .system_sdk = .{ .path = "libs/system_sdk" },
+        .zglfw = .{ .path = "libs/zglfw" },
+        .zopengl = .{ .path = "libs/zopengl" },
+        .zmath = .{ .path = "libs/zmath" },
+        .zgui = .{ .path = "libs/zgui" },
+        //.box2d = .{ .path = "libs/box2d" },
+    },
+}

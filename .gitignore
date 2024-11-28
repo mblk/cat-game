@@ -1,2 +1,8 @@
 .zig-cache/
 zig-out/
+
+libs/system_sdk/
+libs/zglfw/
+libs/zgui/
+libs/zmath/
+libs/zopengl/
