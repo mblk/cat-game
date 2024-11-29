@@ -6,3 +6,5 @@ libs/zglfw/
 libs/zgui/
 libs/zmath/
 libs/zopengl/
+
+imgui.ini

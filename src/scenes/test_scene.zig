@@ -1,11 +1,10 @@
 const std = @import("std");
 const zgui = @import("zgui");
 
-const SceneManager = @import("../engine/scene_manager.zig");
-const Scene = SceneManager.Scene;
+const engine = @import("../engine/engine.zig");
 
-pub fn getScene() Scene {
-    return Scene{
+pub fn getScene() engine.Scene {
+    return engine.Scene{
         .name = "test",
         .load = load,
         .unload = unload,
@@ -22,11 +21,11 @@ const Data = struct {
     c: i32,
 };
 
-fn load(context: *const SceneManager.LoadContext) *void {
+fn load(context: *const engine.LoadContext) !*void {
     // ...
     //_ = context;
 
-    var data = context.allocator.create(Data) catch unreachable;
+    const data = try context.allocator.create(Data);
 
     data.a = 1;
     data.b = 2;
@@ -35,14 +34,14 @@ fn load(context: *const SceneManager.LoadContext) *void {
     return @ptrCast(data);
 }
 
-fn unload(context: *const SceneManager.UnloadContext) void {
+fn unload(context: *const engine.UnloadContext) void {
     // ...
     const data: *Data = @alignCast(@ptrCast(context.scene_data));
 
     context.allocator.destroy(data);
 }
 
-fn update(context: *const SceneManager.UpdateContext) void {
+fn update(context: *const engine.UpdateContext) void {
     //_ = context;
 
     if (context.input_state.consumeKeyDownEvent(.escape)) {
@@ -55,11 +54,11 @@ fn update(context: *const SceneManager.UpdateContext) void {
     }
 }
 
-fn render(context: *const SceneManager.RenderContext) void {
+fn render(context: *const engine.RenderContext) void {
     _ = context;
 }
 
-fn drawUi(context: *const SceneManager.DrawUiContext) void {
+fn drawUi(context: *const engine.DrawUiContext) void {
     //_ = context;
 
     zgui.setNextWindowPos(.{ .x = 300.0, .y = 300.0, .cond = .appearing });

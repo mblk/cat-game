@@ -1,0 +1,196 @@
+const std = @import("std");
+const zopengl = @import("zopengl");
+const gl = zopengl.bindings;
+const zm = @import("zmath");
+
+pub const ShaderError = error{
+    VertexShaderError,
+    FragmentShaderError,
+    ProgramLinkError,
+};
+
+pub const Shader = struct {
+    id: c_uint,
+
+    // pub fn loadFromFile(
+    //     allocator: std.mem.Allocator,
+    //     vs_name: []const u8,
+    //     fs_name: []const u8,
+    // ) !Shader {
+    //     std.log.info("loading shaders {s} {s} ...", .{ vs_name, fs_name });
+
+    //     const vs_source: [:0]const u8 = try content.loadDataFileWithSentinel(allocator, "shader", vs_name);
+    //     defer allocator.free(vs_source);
+
+    //     const fs_source: [:0]const u8 = try content.loadDataFileWithSentinel(allocator, "shader", fs_name);
+    //     defer allocator.free(fs_source);
+
+    //     return loadFromSource(vs_source, fs_source);
+    // }
+
+    pub fn loadFromSource(
+        vertex_shader_source: [:0]const u8,
+        fragment_shader_source: [:0]const u8,
+    ) ShaderError!Shader {
+
+        // vertex shader
+        const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+        defer gl.deleteShader(vertex_shader);
+
+        gl.shaderSource(vertex_shader, 1, @ptrCast(&vertex_shader_source), 0);
+        gl.compileShader(vertex_shader);
+
+        {
+            var success: c_int = undefined;
+            gl.getShaderiv(vertex_shader, gl.COMPILE_STATUS, &success);
+
+            if (success == 0) {
+                //var infoLogLength: c_int = undefined;
+                //gl.getShaderiv(vertex_shader, gl.INFO_LOG_LENGTH, &infoLogLength);
+                //std.log.err("vertex shader error: {d}", .{infoLogLength});
+
+                var info_log: [512]u8 = [_]u8{0} ** 512;
+                gl.getShaderInfoLog(vertex_shader, info_log.len, 0, &info_log);
+                std.log.err("vertex shader error: {s}", .{info_log});
+                return ShaderError.VertexShaderError;
+            }
+        }
+
+        // fragment shader
+        const fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
+        defer gl.deleteShader(fragment_shader);
+
+        gl.shaderSource(fragment_shader, 1, @ptrCast(&fragment_shader_source), 0);
+        gl.compileShader(fragment_shader);
+
+        {
+            var success: c_int = undefined;
+            gl.getShaderiv(fragment_shader, gl.COMPILE_STATUS, &success);
+
+            if (success == 0) {
+                var info_log: [512]u8 = [_]u8{0} ** 512;
+                gl.getShaderInfoLog(fragment_shader, info_log.len, 0, &info_log);
+                std.log.err("fragment shader error: {s}\n", .{info_log});
+                return ShaderError.FragmentShaderError;
+            }
+        }
+
+        // program
+        const shader_program: c_uint = gl.createProgram();
+
+        gl.attachShader(shader_program, vertex_shader);
+        gl.attachShader(shader_program, fragment_shader);
+        gl.linkProgram(shader_program);
+
+        {
+            var success: c_int = undefined;
+            gl.getProgramiv(shader_program, gl.LINK_STATUS, &success);
+
+            if (success == 0) {
+                var info_log: [512]u8 = [_]u8{0} ** 512;
+                gl.getProgramInfoLog(shader_program, info_log.len, 0, &info_log);
+                std.log.err("link error: {s}\n", .{info_log});
+                return ShaderError.ProgramLinkError;
+            }
+        }
+
+        return Shader{
+            .id = shader_program,
+        };
+    }
+
+    pub fn free(self: Shader) void {
+        gl.deleteProgram(self.id);
+    }
+
+    pub fn bind(self: Shader) void {
+        gl.useProgram(self.id);
+    }
+
+    pub fn unbind(self: Shader) void {
+        _ = self;
+        gl.useProgram(0);
+    }
+
+    pub fn setBool(self: Shader, name: [:0]const u8, value: bool) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform1i(loc, @intFromBool(value));
+    }
+
+    pub fn setInt(self: Shader, name: [:0]const u8, value: i32) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform1i(loc, @intCast(value));
+    }
+
+    pub fn setFloat(self: Shader, name: [:0]const u8, value: f32) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform1f(loc, value);
+    }
+
+    pub fn setVec2(self: Shader, name: [:0]const u8, value: [2]f32) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform2f(loc, value[0], value[1]);
+    }
+
+    pub fn setVec3(self: Shader, name: [:0]const u8, value: [3]f32) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform3f(loc, value[0], value[1], value[2]);
+    }
+
+    pub fn setVec4(self: Shader, name: [:0]const u8, value: [4]f32) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform4f(loc, value[0], value[1], value[2], value[3]);
+    }
+
+    //pub fn setMat4(self: Shader, name: [:0]const u8, value: [16]f32) void { // TODO by value vs by reference ?
+    pub fn setMat4(self: Shader, name: [:0]const u8, value: zm.Mat) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        var mem: [16]f32 = undefined;
+
+        zm.storeMat(&mem, value);
+
+        gl.uniformMatrix4fv(loc, 1, gl.FALSE, &mem);
+    }
+};

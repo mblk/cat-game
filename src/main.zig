@@ -5,12 +5,16 @@ const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 const zgui = @import("zgui");
 
-const Window = @import("engine/window.zig");
-const InputState = @import("engine/input_state.zig");
-const SceneManager = @import("engine/scene_manager.zig");
+const engine = @import("engine/engine.zig");
+const Window = engine.Window;
+const InputState = engine.InputState;
+const SceneManager = engine.SceneManager;
+
+const MenuScene = @import("scenes/menu_scene.zig");
+const EmptyScene = @import("scenes/empty_scene.zig");
 
 const TestScene = @import("scenes/test_scene.zig");
-const MenuScene = @import("scenes/menu_scene.zig");
+const Renderer2DTestScene = @import("scenes/renderer_2d_test_scene.zig");
 
 pub fn main() !void {
     std.log.info("hello!", .{});
@@ -24,6 +28,11 @@ pub fn main() !void {
     }){};
     defer _ = gpa_state.deinit();
     const gpa = gpa_state.allocator();
+
+    // -----------------------------------
+
+    var content_manager = try engine.ContentManager.create(gpa);
+    defer content_manager.destroy();
 
     // -----------------------------------
 
@@ -45,7 +54,8 @@ pub fn main() !void {
 
     std.log.info("scale_factor {d}", .{scale_factor});
 
-    scale_factor = 2.0;
+    _ = &scale_factor;
+    //scale_factor = 2.0;
 
     _ = zgui.io.addFontFromFile(
         //content_dir ++ "Roboto-Medium.ttf",
@@ -59,14 +69,14 @@ pub fn main() !void {
     defer zgui.backend.deinit();
 
     // -----------------------------------
-    const test_scene = TestScene.getScene();
-    const menu_scene = MenuScene.getScene();
-
-    var scene_manager = try SceneManager.create(gpa, window);
+    var scene_manager = try SceneManager.create(gpa, window, content_manager);
     defer scene_manager.destroy();
 
-    try scene_manager.registerScene(menu_scene);
-    try scene_manager.registerScene(test_scene);
+    try scene_manager.registerScene(MenuScene.getScene());
+    try scene_manager.registerScene(EmptyScene.getScene());
+
+    try scene_manager.registerScene(TestScene.getScene());
+    try scene_manager.registerScene(Renderer2DTestScene.getScene());
 
     scene_manager.switchScene("menu");
 

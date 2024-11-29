@@ -1,16 +1,10 @@
 const std = @import("std");
 const zgui = @import("zgui");
 
-const SceneManager = @import("../engine/scene_manager.zig");
-const Scene = SceneManager.Scene;
-const LoadContext = SceneManager.LoadContext;
-const UnloadContext = SceneManager.UnloadContext;
-const UpdateContext = SceneManager.UpdateContext;
-const RenderContext = SceneManager.RenderContext;
-const DrawUiContext = SceneManager.DrawUiContext;
+const engine = @import("../engine/engine.zig");
 
-pub fn getScene() Scene {
-    return Scene{
+pub fn getScene() engine.Scene {
+    return engine.Scene{
         .name = "menu",
         .load = load,
         .unload = unload,
@@ -25,46 +19,71 @@ const Data = struct {
     a: i32,
     b: i32,
     c: i32,
+
+    some_text: []const u8,
+
+    // camera: engine.Camera,
+
+    // renderer: engine.Renderer2D,
 };
 
-fn load(context: *const LoadContext) *void {
-    var data = context.allocator.create(Data) catch unreachable;
+fn load(context: *const engine.LoadContext) !*void {
+    const data = try context.allocator.create(Data);
 
     data.a = 111;
     data.b = 222;
     data.c = 333;
 
+    data.some_text = try context.content_manager.loadDataFile(context.allocator, "text", "test.txt");
+
+    // data.camera = engine.Camera.create();
+
+    // data.renderer = try engine.Renderer2D.create(context.allocator, context.content_manager);
+
+    // TODO must free any data in case of error
+
     return @ptrCast(data);
 }
 
-fn unload(context: *const UnloadContext) void {
-    const data: *Data = @alignCast(@ptrCast(context.scene_data));
+fn unload(context: *const engine.UnloadContext) void {
+    const data: *Data = @ptrCast(@alignCast(context.scene_data));
+
+    //data.renderer.free();
+
+    context.allocator.free(data.some_text);
 
     context.allocator.destroy(data);
 }
 
-fn update(context: *const UpdateContext) void {
+fn update(context: *const engine.UpdateContext) void {
     if (context.input_state.consumeKeyDownEvent(.escape)) {
         context.scene_commands.exit = true;
     }
-
-    if (context.input_state.consumeKeyDownEvent(.space)) {
-        std.log.info("test scene got space", .{});
-    }
 }
 
-fn render(context: *const RenderContext) void {
-    _ = context;
+fn render(context: *const engine.RenderContext) void {
+    const data: *Data = @ptrCast(@alignCast(context.scene_data));
+
+    _ = data;
+
+    // data.renderer.addLine(
+    //     [3]f32{ 0.0, 0.0, 0.0 },
+    //     [3]f32{ 10.0, 0.0, 0.0 },
+    //     [4]u8{ 255, 255, 255, 255 },
+    // );
+
+    // data.renderer.render(&data.camera);
 }
 
-fn drawUi(context: *const DrawUiContext) void {
-    var data: *Data = @alignCast(@ptrCast(context.scene_data));
+fn drawUi(context: *const engine.DrawUiContext) void {
+    const data: *Data = @ptrCast(@alignCast(context.scene_data));
 
     zgui.setNextWindowPos(.{ .x = 300.0, .y = 300.0, .cond = .appearing });
     zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
     if (zgui.begin("Main menu", .{})) {
         zgui.text("data {d} {d} {d}", .{ data.a, data.b, data.c });
+        zgui.text("text: {s}", .{data.some_text});
 
         if (zgui.button("aaa", .{})) {
             data.a += 1;
