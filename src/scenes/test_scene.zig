@@ -21,7 +21,7 @@ const Data = struct {
     c: i32,
 };
 
-fn load(context: *const engine.LoadContext) !*void {
+fn load(context: *const engine.LoadContext) !*anyopaque {
     // ...
     //_ = context;
 
@@ -31,7 +31,7 @@ fn load(context: *const engine.LoadContext) !*void {
     data.b = 2;
     data.c = 3;
 
-    return @ptrCast(data);
+    return data;
 }
 
 fn unload(context: *const engine.UnloadContext) void {

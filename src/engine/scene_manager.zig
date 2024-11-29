@@ -11,7 +11,7 @@ const ContentManager = @import("content_manager.zig").ContentManager;
 
 pub const Scene = struct {
     name: []const u8,
-    load: *const fn (context: *const LoadContext) anyerror!*void = load_default, // TODO keep defaults or remove?
+    load: *const fn (context: *const LoadContext) anyerror!*anyopaque = load_default, // TODO keep defaults or remove?
     unload: *const fn (context: *const UnloadContext) void = unload_default,
     update: *const fn (context: *const UpdateContext) void = update_default,
     render: *const fn (context: *const RenderContext) void = render_default,
@@ -21,7 +21,7 @@ pub const Scene = struct {
         a: i32,
     };
 
-    fn load_default(context: *const LoadContext) !*void {
+    fn load_default(context: *const LoadContext) !*anyopaque {
         var data = try context.allocator.create(DummyData);
         data.a = 123;
         return @ptrCast(data);
@@ -98,7 +98,7 @@ pub const SceneManager = struct {
     // scenes
     all_scenes: std.ArrayList(Scene),
     current_scene: ?*Scene,
-    current_scene_data: *void, // TODO maybe move to scene struct?
+    current_scene_data: *anyopaque, // TODO maybe move to scene struct?
 
     pub fn create(
         allocator: std.mem.Allocator,

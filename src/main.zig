@@ -16,6 +16,8 @@ const EmptyScene = @import("scenes/empty_scene.zig");
 const TestScene = @import("scenes/test_scene.zig");
 const Renderer2DTestScene = @import("scenes/renderer_2d_test_scene.zig");
 
+const GameScene = @import("scenes/game_scene.zig");
+
 pub fn main() !void {
     std.log.info("hello!", .{});
     defer std.log.info("bye!", .{});
@@ -74,11 +76,12 @@ pub fn main() !void {
 
     try scene_manager.registerScene(MenuScene.getScene());
     try scene_manager.registerScene(EmptyScene.getScene());
-
     try scene_manager.registerScene(TestScene.getScene());
     try scene_manager.registerScene(Renderer2DTestScene.getScene());
+    try scene_manager.registerScene(GameScene.getScene());
 
-    scene_manager.switchScene("menu");
+    //scene_manager.switchScene("menu");
+    scene_manager.switchScene("game");
 
     scene_manager.runMainLoop();
 }

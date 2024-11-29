@@ -20,13 +20,13 @@ const Data = struct {
     renderer: engine.Renderer2D,
 };
 
-fn load(context: *const engine.LoadContext) !*void {
+fn load(context: *const engine.LoadContext) !*anyopaque {
     const data = try context.allocator.create(Data);
 
     data.camera = engine.Camera.create();
     data.renderer = try engine.Renderer2D.create(context.allocator, context.content_manager);
 
-    return @ptrCast(data);
+    return data;
 }
 
 fn unload(context: *const engine.UnloadContext) void {
@@ -50,21 +50,10 @@ fn update(context: *const engine.UpdateContext) void {
         data.camera.reset();
     }
 
-    if (context.input_state.consumeKeyState(.left)) {
-        data.camera.changePosition([2]f32{ -100.0 * context.dt, 0.0 });
-    }
-
-    if (context.input_state.consumeKeyState(.right)) {
-        data.camera.changePosition([2]f32{ 100.0 * context.dt, 0.0 });
-    }
-
-    if (context.input_state.consumeKeyState(.up)) {
-        data.camera.changePosition([2]f32{ 0.0, 100.0 * context.dt });
-    }
-
-    if (context.input_state.consumeKeyState(.down)) {
-        data.camera.changePosition([2]f32{ 0.0, -100.0 * context.dt });
-    }
+    if (context.input_state.getKeyState(.left)) data.camera.changePosition(vec2.init(-100.0 * context.dt, 0.0));
+    if (context.input_state.getKeyState(.right)) data.camera.changePosition(vec2.init(100.0 * context.dt, 0.0));
+    if (context.input_state.getKeyState(.up)) data.camera.changePosition(vec2.init(0.0, 100.0 * context.dt));
+    if (context.input_state.getKeyState(.down)) data.camera.changePosition(vec2.init(0.0, -100.0 * context.dt));
 }
 
 fn render(context: *const engine.RenderContext) void {

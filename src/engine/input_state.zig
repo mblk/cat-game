@@ -90,14 +90,14 @@ pub fn getKeyState(self: *InputState, key: Key) bool {
     return false;
 }
 
-pub fn consumeKeyState(self: *InputState, key: Key) bool {
-    if (getIndexFromKey(key)) |index| {
-        const state = self.key_states[index];
-        self.key_states[index] = false;
-        return state;
-    }
-    return false;
-}
+// pub fn consumeKeyState(self: *InputState, key: Key) bool {
+//     if (getIndexFromKey(key)) |index| {
+//         const state = self.key_states[index];
+//         self.key_states[index] = false;
+//         return state;
+//     }
+//     return false;
+// }
 
 pub fn consumeKeyDownEvent(self: *InputState, key: Key) bool {
     if (getIndexFromKey(key)) |index| {
@@ -124,14 +124,14 @@ pub fn getMouseButtonState(self: *InputState, button: MouseButton) bool {
     return false;
 }
 
-pub fn consumeMouseButtonState(self: *InputState, button: MouseButton) bool {
-    if (getIndexFromMouseButton(button)) |index| {
-        const state = self.mouse_button_states[index];
-        self.mouse_button_states[index] = false;
-        return state;
-    }
-    return false;
-}
+// pub fn consumeMouseButtonState(self: *InputState, button: MouseButton) bool {
+//     if (getIndexFromMouseButton(button)) |index| {
+//         const state = self.mouse_button_states[index];
+//         self.mouse_button_states[index] = false;
+//         return state;
+//     }
+//     return false;
+// }
 
 pub fn consumeMouseButtonDownEvent(self: *InputState, button: MouseButton) bool {
     if (getIndexFromMouseButton(button)) |index| {

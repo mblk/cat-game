@@ -43,4 +43,24 @@ pub fn build(b: *std.Build) void {
 
     //const check = b.step("check", "Check if foo compiles");
     //check.dependOn(&exe.step);
+
+    // b.addTest()
+
+    // const main_tests = b.addTest("src/root.zig");
+    // //main_tests.set
+
+    // const test_step = b.step("test", "Run tests");
+    // test_step.dependOn(&main_tests.step);
+
+    const test_step = b.step("test", "Run unit tests");
+
+    //for (test_targets) |target| {
+    const unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/root.zig"),
+        //.target = b.resolveTargetQuery(),
+    });
+
+    const run_unit_tests = b.addRunArtifact(unit_tests);
+    test_step.dependOn(&run_unit_tests.step);
+    //}
 }

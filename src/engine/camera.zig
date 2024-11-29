@@ -1,6 +1,8 @@
 const std = @import("std");
 const zmath = @import("zmath");
 
+const vec2 = @import("math.zig").vec2;
+
 pub const Camera = struct {
     viewport_size: [2]i32,
     zoom_level: i32,
@@ -83,9 +85,9 @@ pub const Camera = struct {
         self.update();
     }
 
-    pub fn changePosition(self: *Camera, delta: [2]f32) void {
-        self.offset[0] += delta[0];
-        self.offset[1] += delta[1];
+    pub fn changePosition(self: *Camera, delta: vec2) void {
+        self.offset[0] += delta.x;
+        self.offset[1] += delta.y;
         self.update();
     }
 
@@ -94,7 +96,7 @@ pub const Camera = struct {
     //     self.update();
     // }
 
-    pub fn screenToWorld(self: *const Camera, screen_position: [2]f32) [2]f32 {
+    pub fn screenToWorld(self: *const Camera, screen_position: [2]f32) vec2 {
         //
         const vp_x: f32 = @as(f32, @floatFromInt(self.viewport_size[0]));
         const vp_y: f32 = @as(f32, @floatFromInt(self.viewport_size[1]));
@@ -114,7 +116,9 @@ pub const Camera = struct {
 
         const world_coords = zmath.mul(view_coords, inv_view);
 
-        return [2]f32{ world_coords[0], world_coords[1] };
+        //return [2]f32{ world_coords[0], world_coords[1] };
+
+        return vec2.init(world_coords[0], world_coords[1]);
 
         // var foo: [4]f32 = undefined;
         // zmath.storeArr4(&foo, world_coords);
