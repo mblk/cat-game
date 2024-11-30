@@ -12,6 +12,6 @@
         .zopengl = .{ .path = "libs/zopengl" },
         .zmath = .{ .path = "libs/zmath" },
         .zgui = .{ .path = "libs/zgui" },
-        //.box2d = .{ .path = "libs/box2d" },
+        .zbox = .{ .path = "libs/zbox" },
     },
 }

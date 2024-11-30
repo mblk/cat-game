@@ -45,7 +45,8 @@ pub const ContentManager = struct {
         const file = try std.fs.openFileAbsolute(file_path, .{});
         defer file.close();
 
-        const file_size = (try file.stat()).size;
+        //const file_size = (try file.stat()).size;
+        const file_size = try file.getEndPos();
         const file_buffer: []const u8 = try file.readToEndAllocOptions(allocator, file_size, null, @alignOf(u8), null); // not terminated
 
         return file_buffer; // must be freed by caller
@@ -63,7 +64,8 @@ pub const ContentManager = struct {
         const file = try std.fs.openFileAbsolute(file_path, .{});
         defer file.close();
 
-        const file_size = (try file.stat()).size;
+        //const file_size = (try file.stat()).size;
+        const file_size = try file.getEndPos();
         const file_buffer: [:0]u8 = try file.readToEndAllocOptions(allocator, file_size, null, @alignOf(u8), 0); // 0-terminated
 
         return file_buffer; // must be freed by caller

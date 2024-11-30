@@ -15,6 +15,8 @@ pub fn init(self: *Window) !void {
     std.log.info("sizeof inputstate: {d}", .{@sizeOf(InputState)});
     std.log.info("sizeof window: {d}", .{@sizeOf(Window)});
 
+    const size = [2]i32{ 1920, 1080 };
+
     const gl_major = 4;
     const gl_minor = 0;
 
@@ -25,7 +27,7 @@ pub fn init(self: *Window) !void {
     glfw.windowHintTyped(.client_api, .opengl_api);
     glfw.windowHintTyped(.doublebuffer, true);
 
-    const glfw_window = try glfw.Window.create(1200, 800, "mycatgame999", null);
+    const glfw_window = try glfw.Window.create(size[0], size[1], "mycatgame999", null);
 
     glfw.makeContextCurrent(glfw_window);
     glfw.swapInterval(1);

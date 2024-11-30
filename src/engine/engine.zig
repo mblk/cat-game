@@ -16,10 +16,10 @@ pub const Shader = @import("shader.zig").Shader;
 pub const ShaderError = @import("shader.zig").ShaderError;
 
 pub const Renderer2D = @import("renderer_2d.zig").Renderer2D;
+pub const ZBoxRenderer = @import("zbox_renderer.zig").ZBoxRenderer;
 
 pub const Camera = @import("camera.zig").Camera;
 
 const math = @import("math.zig");
 pub const vec2 = math.vec2;
-
 pub const Color = math.Color;

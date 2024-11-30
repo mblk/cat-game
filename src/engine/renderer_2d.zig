@@ -26,6 +26,8 @@ const VertexData = struct {
 pub const Renderer2D = struct {
     const Self = @This();
 
+    allocator: std.mem.Allocator,
+
     point_shader: Shader,
     line_shader: Shader,
     triangle_shader: Shader,
@@ -46,7 +48,7 @@ pub const Renderer2D = struct {
     pub fn create(
         allocator: std.mem.Allocator,
         content_manager: *ContentManager,
-    ) !Self {
+    ) !*Self {
 
         //
         const point_shader = try content_manager.loadShader(allocator, "point.vs", "point.fs");
@@ -139,7 +141,11 @@ pub const Renderer2D = struct {
         }
         gl.bindVertexArray(0);
 
-        return Renderer2D{
+        const renderer = try allocator.create(Self);
+
+        renderer.* = Renderer2D{
+            .allocator = allocator,
+
             .point_shader = point_shader,
             .line_shader = line_shader,
             .triangle_shader = triangle_shader,
@@ -155,6 +161,8 @@ pub const Renderer2D = struct {
             .line_data = std.ArrayList(VertexData).init(allocator),
             .triangle_data = std.ArrayList(VertexData).init(allocator),
         };
+
+        return renderer;
     }
 
     pub fn free(self: *Self) void {
@@ -174,6 +182,8 @@ pub const Renderer2D = struct {
         self.point_shader.free();
         self.line_shader.free();
         self.triangle_shader.free();
+
+        self.allocator.destroy(self);
     }
 
     pub fn addPoint(self: *Self, position: vec2, size: f32, color: Color) void {

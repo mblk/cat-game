@@ -6,7 +6,11 @@ const engine = @import("../engine/engine.zig");
 const vec2 = engine.vec2;
 const Color = engine.Color;
 
+const zbox = @import("zbox");
+const b2 = zbox.API;
+
 const World = @import("../game/world.zig").World;
+const Player = @import("../game/player.zig").Player;
 
 pub fn getScene() engine.Scene {
     return engine.Scene{
@@ -22,27 +26,38 @@ pub fn getScene() engine.Scene {
 const Data = struct {
     // state
     world: World,
+    player: Player,
 
     // visuals
     camera: engine.Camera,
-    renderer: engine.Renderer2D,
+    renderer: *engine.Renderer2D,
+    zbox_renderer: engine.ZBoxRenderer,
 
     // input
-    mouse_position: vec2 = vec2.init(0, 0), // XXX shit
+    mouse_position: vec2 = vec2.init(0, 0), // XXX
     prev_mouse_position: vec2 = vec2.init(0, 0),
     mouse_diff: vec2 = vec2.init(0, 0),
 
     build_mode: BuildMode = .Idle,
     selection: Selection = .None,
-    moving_selected: bool = false, // XXX shit
+    moving_selected: bool = false, // XXX
 
     moving_camera: bool = false,
 };
+
+// Idle,
+// CreateGroundSegment,
+// Select,
+// EditGroundSegment,
+// EditGroundPoint,
+//
 
 const BuildMode = enum {
     Idle,
     Create,
     Edit,
+
+    CreateBox,
 };
 
 const Selection = union(enum) {
@@ -54,18 +69,24 @@ const Selection = union(enum) {
 fn load(context: *const engine.LoadContext) !*anyopaque {
     var world = World.create(context.allocator);
     errdefer world.free();
-    try world.load();
+    //try world.load();
+
+    const player = Player.create(world.world_id);
 
     const camera = engine.Camera.create();
 
     var renderer = try engine.Renderer2D.create(context.allocator, context.content_manager);
     errdefer renderer.free();
 
+    const zbox_renderer = engine.ZBoxRenderer.create(renderer);
+
     const data = try context.allocator.create(Data);
     data.* = Data{
-        .world = world,
+        .world = world, // Note: This makes a copy
+        .player = player,
         .camera = camera,
         .renderer = renderer,
+        .zbox_renderer = zbox_renderer,
     };
     return data;
 }
@@ -82,8 +103,17 @@ fn unload(context: *const engine.UnloadContext) void {
 fn update(context: *const engine.UpdateContext) void {
     const data: *Data = @ptrCast(@alignCast(context.scene_data));
 
+    // update physics
+    // TODO figure out optimal order of things
+
+    data.player.update(context.dt, context.input_state);
+
+    data.world.update(context.dt);
+
+    // TODO only set when changed?
     data.camera.setViewportSize(context.viewport_size);
 
+    // convert screen coords to world coords
     const mouse_position = data.camera.screenToWorld(context.input_state.mouse_position_screen);
     data.mouse_position = mouse_position;
     data.mouse_diff = mouse_position.sub(data.prev_mouse_position);
@@ -188,9 +218,18 @@ fn update(context: *const engine.UpdateContext) void {
                     // create new point?
                     else {
                         // show preview
+                        var prev_point_index = ground_point_index.ground_point_index;
+
+                        if (prev_point_index > 0) {
+                            prev_point_index -= 1;
+                        } else {
+                            prev_point_index = ground_segment.points.items.len - 1;
+                        }
+
                         const p1 = ground_segment.position.add(ground_point);
                         const p2 = mouse_position;
-                        const p3_local = ground_segment.points.items[(ground_point_index.ground_point_index + 1) % ground_segment.points.items.len];
+                        //const p3_local = ground_segment.points.items[(ground_point_index.ground_point_index - 1) % ground_segment.points.items.len];
+                        const p3_local = ground_segment.points.items[prev_point_index];
                         const p3 = ground_segment.position.add(p3_local);
 
                         data.renderer.addLine(p1, p2, Color.red);
@@ -208,6 +247,24 @@ fn update(context: *const engine.UpdateContext) void {
             if (data.selection != .None and context.input_state.consumeMouseButtonDownEvent(.right)) {
                 data.selection = .None;
                 data.moving_selected = false;
+            }
+        },
+
+        .CreateBox => {
+            var spawn = false;
+
+            if (context.input_state.getKeyState(.left_shift)) {
+                if (context.input_state.getMouseButtonState(.left)) {
+                    spawn = true;
+                }
+            } else {
+                if (context.input_state.consumeMouseButtonDownEvent(.left)) {
+                    spawn = true;
+                }
+            }
+
+            if (spawn) {
+                data.world.createDynamicBox(mouse_position);
             }
         },
     }
@@ -249,21 +306,32 @@ fn update(context: *const engine.UpdateContext) void {
 fn render(context: *const engine.RenderContext) void {
     const data: *Data = @ptrCast(@alignCast(context.scene_data));
 
-    data.renderer.addPoint(data.mouse_position, 1.0, Color.green);
+    // mouse
+    data.renderer.addPointWithPixelSize(data.mouse_position, 10.0, Color.green);
 
-    for (data.world.ground_segments.items) |ground_segment| {
-        data.renderer.addPoint(ground_segment.position, 1.0, Color.red);
+    for (0.., data.world.ground_segments.items) |ground_segment_index, ground_segment| {
+        const ground_segment_color = if (data.selection == Selection.GroundSegment and
+            data.selection.GroundSegment.index == ground_segment_index) Color.red else Color.white;
 
-        for (0.., ground_segment.points.items) |i, ground_point| {
+        data.renderer.addPointWithPixelSize(ground_segment.position, 20.0, ground_segment_color);
+
+        for (0.., ground_segment.points.items) |ground_point_index, ground_point| {
             const p1_local = ground_point;
-            const p2_local = ground_segment.points.items[(i + 1) % ground_segment.points.items.len];
+            const p2_local = ground_segment.points.items[(ground_point_index + 1) % ground_segment.points.items.len];
             const p1 = ground_segment.position.add(p1_local);
             const p2 = ground_segment.position.add(p2_local);
 
-            data.renderer.addPointWithPixelSize(p1, 10.0, Color.white);
+            const ground_point_color = if (data.selection == .GroundPoint and
+                data.selection.GroundPoint.ground_segment_index == ground_segment_index and
+                data.selection.GroundPoint.ground_point_index == ground_point_index) Color.red else Color.white;
+
+            data.renderer.addPointWithPixelSize(p1, 10.0, ground_point_color);
             data.renderer.addLine(p1, p2, Color.white);
         }
     }
+
+    // physics
+    b2.b2World_Draw(data.world.world_id, &data.zbox_renderer.b2_debug_draw);
 
     data.renderer.render(&data.camera);
 }
@@ -275,6 +343,19 @@ fn drawUi(context: *const engine.DrawUiContext) void {
     //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
     if (zgui.begin("Game", .{})) {
+        zgui.text("mouse: {d:.1} {d:.1}", .{ data.mouse_position.x, data.mouse_position.y });
+
+        if (zgui.button("save", .{})) {
+            data.world.save() catch |e| {
+                std.log.err("save: {any}", .{e});
+            };
+        }
+        if (zgui.button("load", .{})) {
+            data.world.load() catch |e| {
+                std.log.err("load: {any}", .{e});
+            };
+        }
+
         zgui.text("build mode:", .{});
 
         inline for (@typeInfo(BuildMode).@"enum".fields) |field| {
@@ -286,6 +367,10 @@ fn drawUi(context: *const engine.DrawUiContext) void {
         }
 
         zgui.text("selection: {any}", .{data.selection});
+
+        if (zgui.collapsingHeader("physics", .{})) {
+            data.zbox_renderer.drawUi();
+        }
 
         zgui.end();
     }

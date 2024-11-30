@@ -17,7 +17,7 @@ pub fn getScene() engine.Scene {
 
 const Data = struct {
     camera: engine.Camera,
-    renderer: engine.Renderer2D,
+    renderer: *engine.Renderer2D,
 };
 
 fn load(context: *const engine.LoadContext) !*anyopaque {

@@ -32,6 +32,10 @@ pub fn build(b: *std.Build) void {
     // exe.root_module.addImport("box2d", box2d.module("root"));
     // exe.linkLibrary(box2d.artifact("box2d"));
 
+    const zbox = b.dependency("zbox", .{});
+    exe.root_module.addImport("zbox", zbox.module("root"));
+    exe.linkLibrary(zbox.artifact("box2d"));
+
     b.installArtifact(exe);
 
     // const exe_check = b.addExecutable(.{

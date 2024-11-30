@@ -33,6 +33,7 @@ pub fn clear(self: *InputState) void {
 }
 
 pub fn removeMouseInput(self: *InputState) void {
+    self.mouse_scroll = 0.0;
     self.mouse_button_states = [_]bool{false} ** 8;
 }
 

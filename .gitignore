@@ -7,4 +7,6 @@ libs/zgui/
 libs/zmath/
 libs/zopengl/
 
+libs/zbox/libs/
+
 imgui.ini
