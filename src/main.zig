@@ -36,6 +36,9 @@ pub fn main() !void {
     var content_manager = try engine.ContentManager.create(gpa);
     defer content_manager.destroy();
 
+    var save_manager = try engine.SaveManager.create(gpa);
+    defer save_manager.free();
+
     // -----------------------------------
 
     var window: *Window = try gpa.create(Window);
@@ -71,7 +74,7 @@ pub fn main() !void {
     defer zgui.backend.deinit();
 
     // -----------------------------------
-    var scene_manager = try SceneManager.create(gpa, window, content_manager);
+    var scene_manager = try SceneManager.create(gpa, window, content_manager, &save_manager);
     defer scene_manager.destroy();
 
     try scene_manager.registerScene(MenuScene.getScene());

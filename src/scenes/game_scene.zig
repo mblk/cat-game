@@ -10,6 +10,13 @@ const zbox = @import("zbox");
 const b2 = zbox.API;
 
 const World = @import("../game/world.zig").World;
+const GroundPointIndex = @import("../game/world.zig").GroundPointIndex;
+const GroundSegmentIndex = @import("../game/world.zig").GroundSegmentIndex;
+const GroundSegment = @import("../game/world.zig").GroundSegment;
+
+const WorldExporter = @import("../game/world_export.zig").WorldExporter;
+const WorldImporter = @import("../game/world_export.zig").WorldImporter;
+
 const Player = @import("../game/player.zig").Player;
 
 pub fn getScene() engine.Scene {
@@ -28,7 +35,7 @@ const Data = struct {
     world: World,
     player: Player,
 
-    // visuals
+    // visual
     camera: engine.Camera,
     renderer: *engine.Renderer2D,
     zbox_renderer: engine.ZBoxRenderer,
@@ -43,8 +50,11 @@ const Data = struct {
     moving_selected: bool = false, // XXX
 
     moving_camera: bool = false,
+
+    save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
 };
 
+// XXX merge?
 // Idle,
 // CreateGroundSegment,
 // Select,
@@ -62,8 +72,8 @@ const BuildMode = enum {
 
 const Selection = union(enum) {
     None: void,
-    GroundSegment: World.GroundSegmentIndex,
-    GroundPoint: World.GroundPointIndex,
+    GroundSegment: GroundSegmentIndex,
+    GroundPoint: GroundPointIndex,
 };
 
 fn load(context: *const engine.LoadContext) !*anyopaque {
@@ -88,6 +98,9 @@ fn load(context: *const engine.LoadContext) !*anyopaque {
         .renderer = renderer,
         .zbox_renderer = zbox_renderer,
     };
+
+    @memcpy(data.save_name_buffer[0..4], "test");
+
     return data;
 }
 
@@ -130,10 +143,18 @@ fn update(context: *const engine.UpdateContext) void {
             data.moving_selected = false;
 
             if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                const new_index = data.world.createGroundSegment(mouse_position) catch unreachable;
+                const new_index = data.world.createGroundSegment(mouse_position);
+
+                // box2d uses ccw order.
+                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 0 }, vec2.init(-10, -10), false);
+                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 1 }, vec2.init(10, -10), false);
+                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 2 }, vec2.init(10, 10), false);
+                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 3 }, vec2.init(-10, 10), false);
 
                 data.build_mode = .Edit;
                 data.selection = .{ .GroundSegment = new_index };
+
+                // TODO vielleicht besser einen Modus hinzufügen bei dem man das gewünschte Polygon zeichnet und es dann erst angelegt wird?
             }
         },
 
@@ -237,7 +258,7 @@ fn update(context: *const engine.UpdateContext) void {
 
                         // create new point?
                         if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                            const new_index = data.world.createGroundPoint(ground_point_index, mouse_position) catch unreachable;
+                            const new_index = data.world.createGroundPoint(ground_point_index, mouse_position, true);
                             data.selection = .{ .GroundPoint = new_index };
                         }
                     }
@@ -345,14 +366,32 @@ fn drawUi(context: *const engine.DrawUiContext) void {
     if (zgui.begin("Game", .{})) {
         zgui.text("mouse: {d:.1} {d:.1}", .{ data.mouse_position.x, data.mouse_position.y });
 
-        if (zgui.button("save", .{})) {
-            data.world.save() catch |e| {
-                std.log.err("save: {any}", .{e});
+        if (zgui.button("clear", .{})) {
+            data.build_mode = .Idle;
+            data.selection = .None;
+
+            data.world.clear();
+        }
+
+        _ = zgui.inputText("save name", .{
+            .buf = &data.save_name_buffer,
+        });
+
+        //std.log.info("b1 {} buffer '{s}'", .{ b1, data.save_name_buffer });
+
+        if (zgui.button("export", .{})) {
+            const s = getSliceFromSentinelArray(&data.save_name_buffer);
+            exportWorld(&data.world, context.save_manager, s) catch |e| {
+                std.log.err("export: {any}", .{e});
             };
         }
-        if (zgui.button("load", .{})) {
-            data.world.load() catch |e| {
-                std.log.err("load: {any}", .{e});
+        if (zgui.button("import", .{})) {
+            data.build_mode = .Idle;
+            data.selection = .None;
+
+            const s = getSliceFromSentinelArray(&data.save_name_buffer);
+            importWorld(&data.world, context.save_manager, s) catch |e| {
+                std.log.err("import: {any}", .{e});
             };
         }
 
@@ -374,4 +413,39 @@ fn drawUi(context: *const engine.DrawUiContext) void {
 
         zgui.end();
     }
+}
+
+fn getSliceFromSentinelArray(a: [*:0]const u8) []const u8 {
+    //const ptr_to_string: [*:0]const u8 = a;
+    const len = std.mem.len(a);
+    const s: []const u8 = a[0..len];
+    std.debug.assert(std.mem.indexOfScalar(u8, s, 0) == null); // no 0 character in string
+
+    return s;
+}
+
+fn exportWorld(world: *World, save_manager: *engine.SaveManager, name: []const u8) !void {
+
+    // XXX provide via arg?
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const data = try WorldExporter.exportWorld(world, allocator);
+    //std.log.info("data: {s}", .{data});
+
+    try save_manager.save(name, data, allocator);
+}
+
+fn importWorld(world: *World, save_manager: *engine.SaveManager, name: []const u8) !void {
+
+    // XXX provide via arg?
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const data = try save_manager.load(name, allocator);
+    //std.log.info("data: {s}", .{data});
+
+    try WorldImporter.importWorld(world, data, allocator);
 }

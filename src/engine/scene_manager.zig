@@ -8,6 +8,7 @@ const zgui = @import("zgui");
 const Window = @import("window.zig");
 const InputState = @import("input_state.zig");
 const ContentManager = @import("content_manager.zig").ContentManager;
+const SaveManager = @import("save_manager.zig").SaveManager;
 
 pub const Scene = struct {
     name: []const u8,
@@ -80,6 +81,8 @@ pub const DrawUiContext = struct {
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
     scene_data: *anyopaque,
+
+    save_manager: *SaveManager,
 };
 
 pub const SceneCommandBuffer = struct {
@@ -94,6 +97,7 @@ pub const SceneManager = struct {
     allocator: std.mem.Allocator,
     window: *Window,
     content_manager: *ContentManager,
+    save_manager: *SaveManager,
 
     // scenes
     all_scenes: std.ArrayList(Scene),
@@ -104,11 +108,13 @@ pub const SceneManager = struct {
         allocator: std.mem.Allocator,
         window: *Window,
         content_manager: *ContentManager,
+        save_manager: *SaveManager,
     ) !SceneManager {
         return SceneManager{
             .allocator = allocator,
             .window = window,
             .content_manager = content_manager,
+            .save_manager = save_manager,
 
             .all_scenes = std.ArrayList(Scene).init(allocator),
             .current_scene = null,
@@ -256,6 +262,7 @@ pub const SceneManager = struct {
                 .viewport_size = viewport_size,
                 .scene_commands = command_buffer,
                 .scene_data = self.current_scene_data,
+                .save_manager = self.save_manager,
             };
 
             scene.draw_ui(&draw_ui_context);

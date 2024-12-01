@@ -11,6 +11,7 @@ pub const RenderContext = @import("scene_manager.zig").RenderContext;
 pub const DrawUiContext = @import("scene_manager.zig").DrawUiContext;
 
 pub const ContentManager = @import("content_manager.zig").ContentManager;
+pub const SaveManager = @import("save_manager.zig").SaveManager;
 
 pub const Shader = @import("shader.zig").Shader;
 pub const ShaderError = @import("shader.zig").ShaderError;

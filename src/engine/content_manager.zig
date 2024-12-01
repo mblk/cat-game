@@ -7,7 +7,7 @@ pub const ContentManager = struct {
     // deps
     allocator: std.mem.Allocator,
 
-    pub fn create(allocator: std.mem.Allocator) !*ContentManager {
+    pub fn create(allocator: std.mem.Allocator) !*ContentManager { // TODO no need for allocating?
         var content_manager = try allocator.create(ContentManager);
 
         content_manager.allocator = allocator;
@@ -26,9 +26,11 @@ pub const ContentManager = struct {
         file_name: []const u8,
     ) ![]const u8 {
         const data_dir_path: []u8 = try std.fs.cwd().realpathAlloc(allocator, "content");
-        defer self.allocator.free(data_dir_path);
+        defer allocator.free(data_dir_path);
 
-        const file_path = try std.fs.path.join(self.allocator, &.{ data_dir_path, file_type, file_name });
+        const file_path = try std.fs.path.join(allocator, &.{ data_dir_path, file_type, file_name });
+
+        _ = self;
 
         return file_path; // must be freed by caller
     }
@@ -40,7 +42,7 @@ pub const ContentManager = struct {
         file_name: []const u8,
     ) ![]const u8 {
         const file_path = try self.getDataFilePath(allocator, file_type, file_name);
-        defer self.allocator.free(file_path);
+        defer allocator.free(file_path);
 
         const file = try std.fs.openFileAbsolute(file_path, .{});
         defer file.close();
@@ -59,7 +61,7 @@ pub const ContentManager = struct {
         file_name: []const u8,
     ) ![:0]const u8 {
         const file_path = try self.getDataFilePath(allocator, file_type, file_name);
-        defer self.allocator.free(file_path);
+        defer allocator.free(file_path);
 
         const file = try std.fs.openFileAbsolute(file_path, .{});
         defer file.close();
