@@ -2,7 +2,6 @@ const std = @import("std");
 const zgui = @import("zgui");
 
 const engine = @import("../engine/engine.zig");
-
 const vec2 = engine.vec2;
 const Color = engine.Color;
 
@@ -18,6 +17,11 @@ const WorldExporter = @import("../game/world_export.zig").WorldExporter;
 const WorldImporter = @import("../game/world_export.zig").WorldImporter;
 
 const Player = @import("../game/player.zig").Player;
+
+const Tool = @import("../game/tools/tool.zig").Tool;
+const ToolVTable = @import("../game/tools/tool.zig").ToolVTable;
+const GroundEditTool = @import("../game/tools/ground_edit_tool.zig").GroundEditTool;
+const VehicleEditTool = @import("../game/tools/vehicle_edit_tool.zig").VehicleEditTool;
 
 pub fn getScene() engine.Scene {
     return engine.Scene{
@@ -46,40 +50,29 @@ const Data = struct {
     mouse_diff: vec2 = vec2.init(0, 0),
 
     build_mode: BuildMode = .Idle,
-    selection: Selection = .None,
-    moving_selected: bool = false, // XXX
 
     moving_camera: bool = false,
 
     save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
-};
 
-// XXX merge?
-// Idle,
-// CreateGroundSegment,
-// Select,
-// EditGroundSegment,
-// EditGroundPoint,
-//
+    // tools
+    all_tools: []ToolVTable,
+    active_tool: ?Tool = null,
+};
 
 const BuildMode = enum {
     Idle,
-    Create,
-    Edit,
-
+    ControlPlayer,
     CreateBox,
-};
-
-const Selection = union(enum) {
-    None: void,
-    GroundSegment: GroundSegmentIndex,
-    GroundPoint: GroundPointIndex,
 };
 
 fn load(context: *const engine.LoadContext) !*anyopaque {
     var world = World.create(context.allocator);
     errdefer world.free();
     //try world.load();
+    world.createDynamicBox(vec2.init(10, 10));
+    world.createDynamicBox(vec2.init(15, 10));
+    world.createDynamicBox(vec2.init(20, 10));
 
     const player = Player.create(world.world_id);
 
@@ -90,6 +83,12 @@ fn load(context: *const engine.LoadContext) !*anyopaque {
 
     const zbox_renderer = engine.ZBoxRenderer.create(renderer);
 
+    // tools
+    var all_tools = std.ArrayList(ToolVTable).init(context.allocator);
+    defer all_tools.deinit();
+    try all_tools.append(GroundEditTool.getVTable());
+    try all_tools.append(VehicleEditTool.getVTable());
+
     const data = try context.allocator.create(Data);
     data.* = Data{
         .world = world, // Note: This makes a copy
@@ -97,6 +96,7 @@ fn load(context: *const engine.LoadContext) !*anyopaque {
         .camera = camera,
         .renderer = renderer,
         .zbox_renderer = zbox_renderer,
+        .all_tools = try all_tools.toOwnedSlice(),
     };
 
     @memcpy(data.save_name_buffer[0..4], "test");
@@ -106,6 +106,12 @@ fn load(context: *const engine.LoadContext) !*anyopaque {
 
 fn unload(context: *const engine.UnloadContext) void {
     const data: *Data = @ptrCast(@alignCast(context.scene_data));
+
+    if (data.active_tool) |tool| {
+        tool.vtable.destroy(tool.context);
+    }
+
+    context.allocator.free(data.all_tools);
 
     data.renderer.free();
     data.world.free();
@@ -118,10 +124,8 @@ fn update(context: *const engine.UpdateContext) void {
 
     // update physics
     // TODO figure out optimal order of things
-
-    data.player.update(context.dt, context.input_state);
-
-    data.world.update(context.dt);
+    // data.player.update(context.dt, context.input_state);
+    // data.world.update(context.dt);
 
     // TODO only set when changed?
     data.camera.setViewportSize(context.viewport_size);
@@ -132,143 +136,19 @@ fn update(context: *const engine.UpdateContext) void {
     data.mouse_diff = mouse_position.sub(data.prev_mouse_position);
     data.prev_mouse_position = mouse_position;
 
+    // update physics
+    // TODO figure out optimal order of things
+    data.player.update(context.dt, context.input_state, mouse_position, data.build_mode == .ControlPlayer);
+    data.world.update(context.dt);
+
     switch (data.build_mode) {
         .Idle => {
-            data.selection = .None;
-            data.moving_selected = false;
+            // data.selection = .None;
+            // data.moving_selected = false;
         },
 
-        .Create => {
-            data.selection = .None;
-            data.moving_selected = false;
-
-            if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                const new_index = data.world.createGroundSegment(mouse_position);
-
-                // box2d uses ccw order.
-                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 0 }, vec2.init(-10, -10), false);
-                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 1 }, vec2.init(10, -10), false);
-                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 2 }, vec2.init(10, 10), false);
-                _ = data.world.createGroundPoint(GroundPointIndex{ .ground_segment_index = new_index.index, .ground_point_index = 3 }, vec2.init(-10, 10), false);
-
-                data.build_mode = .Edit;
-                data.selection = .{ .GroundSegment = new_index };
-
-                // TODO vielleicht besser einen Modus hinzufügen bei dem man das gewünschte Polygon zeichnet und es dann erst angelegt wird?
-            }
-        },
-
-        .Edit => {
-            switch (data.selection) {
-                .None => {
-                    // select ground segment?
-                    if (data.world.getGroundSegment(mouse_position, 10.0)) |ground_segment_index| {
-                        const ground_segment = data.world.ground_segments.items[ground_segment_index.index];
-
-                        data.renderer.addLine(mouse_position, ground_segment.position, Color.red);
-
-                        if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                            data.selection = .{ .GroundSegment = ground_segment_index };
-                        }
-                    }
-                    // select ground point?
-                    else if (data.world.getGroundPoint(mouse_position, 10.0)) |ground_point_index| {
-                        const ground_segment = data.world.ground_segments.items[ground_point_index.ground_segment_index];
-                        const ground_point = ground_segment.points.items[ground_point_index.ground_point_index];
-                        const p = ground_segment.position.add(ground_point);
-
-                        data.renderer.addLine(mouse_position, p, Color.red);
-
-                        if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                            data.selection = .{ .GroundPoint = ground_point_index };
-                        }
-                    }
-                },
-                .GroundSegment => |ground_segment_index| {
-                    const ground_segment = data.world.ground_segments.items[ground_segment_index.index];
-                    const dist = mouse_position.dist(ground_segment.position);
-
-                    // delete?
-                    if (context.input_state.consumeKeyDownEvent(.delete)) {
-                        data.world.deleteGroundSegment(ground_segment_index);
-
-                        data.selection = .None;
-                        data.moving_selected = false;
-                    }
-                    // stop moving?
-                    else if (data.moving_selected and !context.input_state.getMouseButtonState(.left)) {
-                        data.moving_selected = false;
-                    }
-                    // keep moving?
-                    else if (data.moving_selected and context.input_state.getMouseButtonState(.left)) {
-                        data.world.moveGroundSegment(ground_segment_index, mouse_position);
-                    }
-                    // start moving?
-                    else if (dist < 10.0 and context.input_state.consumeMouseButtonDownEvent(.left)) {
-                        data.moving_selected = true;
-                    }
-                },
-                .GroundPoint => |ground_point_index| {
-                    const ground_segment = data.world.ground_segments.items[ground_point_index.ground_segment_index];
-                    const ground_point = ground_segment.points.items[ground_point_index.ground_point_index];
-                    const dist = mouse_position.dist(ground_segment.position.add(ground_point));
-
-                    // delete?
-                    if (context.input_state.consumeKeyDownEvent(.delete)) {
-                        data.world.deleteGroundPoint(ground_point_index);
-
-                        data.selection = .None;
-                        data.moving_selected = false;
-                    }
-                    // stop moving?
-                    else if (data.moving_selected and !context.input_state.getMouseButtonState(.left)) {
-                        data.moving_selected = false;
-                    }
-                    // keep moving?
-                    else if (data.moving_selected and context.input_state.getMouseButtonState(.left)) {
-                        data.world.moveGroundPoint(ground_point_index, mouse_position);
-                    }
-                    // start moving?
-                    else if (dist < 10) {
-
-                        // start moving?
-                        if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                            data.moving_selected = true;
-                        }
-                    }
-                    // create new point?
-                    else {
-                        // show preview
-                        var prev_point_index = ground_point_index.ground_point_index;
-
-                        if (prev_point_index > 0) {
-                            prev_point_index -= 1;
-                        } else {
-                            prev_point_index = ground_segment.points.items.len - 1;
-                        }
-
-                        const p1 = ground_segment.position.add(ground_point);
-                        const p2 = mouse_position;
-                        //const p3_local = ground_segment.points.items[(ground_point_index.ground_point_index - 1) % ground_segment.points.items.len];
-                        const p3_local = ground_segment.points.items[prev_point_index];
-                        const p3 = ground_segment.position.add(p3_local);
-
-                        data.renderer.addLine(p1, p2, Color.red);
-                        data.renderer.addLine(p2, p3, Color.red);
-
-                        // create new point?
-                        if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                            const new_index = data.world.createGroundPoint(ground_point_index, mouse_position, true);
-                            data.selection = .{ .GroundPoint = new_index };
-                        }
-                    }
-                },
-            }
-
-            if (data.selection != .None and context.input_state.consumeMouseButtonDownEvent(.right)) {
-                data.selection = .None;
-                data.moving_selected = false;
-            }
+        .ControlPlayer => {
+            //
         },
 
         .CreateBox => {
@@ -288,6 +168,11 @@ fn update(context: *const engine.UpdateContext) void {
                 data.world.createDynamicBox(mouse_position);
             }
         },
+    }
+
+    // tool
+    if (data.active_tool) |tool| {
+        tool.vtable.update(tool.context, context.input_state, mouse_position);
     }
 
     // camera movement
@@ -330,29 +215,16 @@ fn render(context: *const engine.RenderContext) void {
     // mouse
     data.renderer.addPointWithPixelSize(data.mouse_position, 10.0, Color.green);
 
-    for (0.., data.world.ground_segments.items) |ground_segment_index, ground_segment| {
-        const ground_segment_color = if (data.selection == Selection.GroundSegment and
-            data.selection.GroundSegment.index == ground_segment_index) Color.red else Color.white;
-
-        data.renderer.addPointWithPixelSize(ground_segment.position, 20.0, ground_segment_color);
-
-        for (0.., ground_segment.points.items) |ground_point_index, ground_point| {
-            const p1_local = ground_point;
-            const p2_local = ground_segment.points.items[(ground_point_index + 1) % ground_segment.points.items.len];
-            const p1 = ground_segment.position.add(p1_local);
-            const p2 = ground_segment.position.add(p2_local);
-
-            const ground_point_color = if (data.selection == .GroundPoint and
-                data.selection.GroundPoint.ground_segment_index == ground_segment_index and
-                data.selection.GroundPoint.ground_point_index == ground_point_index) Color.red else Color.white;
-
-            data.renderer.addPointWithPixelSize(p1, 10.0, ground_point_color);
-            data.renderer.addLine(p1, p2, Color.white);
-        }
-    }
-
     // physics
     b2.b2World_Draw(data.world.world_id, &data.zbox_renderer.b2_debug_draw);
+
+    // player
+    data.player.render(context.dt, data.renderer);
+
+    // tool
+    if (data.active_tool) |tool| {
+        tool.vtable.render(tool.context);
+    }
 
     data.renderer.render(&data.camera);
 }
@@ -368,7 +240,6 @@ fn drawUi(context: *const engine.DrawUiContext) void {
 
         if (zgui.button("clear", .{})) {
             data.build_mode = .Idle;
-            data.selection = .None;
 
             data.world.clear();
         }
@@ -387,12 +258,45 @@ fn drawUi(context: *const engine.DrawUiContext) void {
         }
         if (zgui.button("import", .{})) {
             data.build_mode = .Idle;
-            data.selection = .None;
 
             const s = getSliceFromSentinelArray(&data.save_name_buffer);
             importWorld(&data.world, context.save_manager, s) catch |e| {
                 std.log.err("import: {any}", .{e});
             };
+        }
+
+        if (data.active_tool) |tool| {
+            zgui.text("tool: {s}", .{tool.vtable.name});
+        } else {
+            zgui.text("tool: ---", .{});
+        }
+
+        if (zgui.button("tool: ---", .{})) {
+            if (data.active_tool) |tool| {
+                tool.vtable.destroy(tool.context);
+            }
+            data.active_tool = null;
+        }
+
+        var buffer: [128]u8 = undefined;
+
+        for (data.all_tools) |tool_vtable| {
+            const b = std.fmt.bufPrintZ(&buffer, "tool: {s}", .{tool_vtable.name}) catch unreachable;
+            if (zgui.button(b, .{})) {
+                //
+                if (data.active_tool) |tool| {
+                    tool.vtable.destroy(tool.context);
+                }
+                data.active_tool = Tool{
+                    .vtable = tool_vtable,
+                    .context = tool_vtable.create(context.allocator, &data.world, data.renderer) catch unreachable,
+                };
+            }
+        }
+
+        // tool
+        if (data.active_tool) |tool| {
+            tool.vtable.drawUi(tool.context);
         }
 
         zgui.text("build mode:", .{});
@@ -405,10 +309,18 @@ fn drawUi(context: *const engine.DrawUiContext) void {
             }
         }
 
-        zgui.text("selection: {any}", .{data.selection});
-
         if (zgui.collapsingHeader("physics", .{})) {
             data.zbox_renderer.drawUi();
+        }
+
+        if (zgui.collapsingHeader("vehicles", .{})) {
+            for (data.world.vehicles.items) |vehicle| {
+                zgui.text("vehicle alive={} blocks={d}", .{ vehicle.alive, vehicle.blocks.items.len });
+
+                for (vehicle.blocks.items) |block| {
+                    zgui.text("  block alive={} pos={d} {d}", .{ block.alive, block.local_position.x, block.local_position.y });
+                }
+            }
         }
 
         zgui.end();

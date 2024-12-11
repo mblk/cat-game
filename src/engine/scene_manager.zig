@@ -50,6 +50,13 @@ pub const Scene = struct {
 // ctx: *anyopaque,
 // const self: *Self = @ptrCast(@alignCast(ctx));
 
+// TODO
+// - think about different allocators (eg. arena allocator for per-frame-data)
+//   - per frame (eg. arena)
+//   - per scene
+//   - per world
+//   - per game (ie. global)
+
 pub const LoadContext = struct {
     allocator: std.mem.Allocator,
     content_manager: *ContentManager,
@@ -62,14 +69,16 @@ pub const UnloadContext = struct {
 };
 
 pub const UpdateContext = struct {
+    allocator: std.mem.Allocator,
     dt: f32,
     input_state: *InputState,
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
-    scene_data: *anyopaque,
+    scene_data: *anyopaque, // TODO besser als argument?
 };
 
 pub const RenderContext = struct {
+    allocator: std.mem.Allocator,
     dt: f32,
     //renderer?
     viewport_size: [2]i32,
@@ -77,6 +86,7 @@ pub const RenderContext = struct {
 };
 
 pub const DrawUiContext = struct {
+    allocator: std.mem.Allocator,
     dt: f32,
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
@@ -220,6 +230,7 @@ pub const SceneManager = struct {
 
         if (self.current_scene) |scene| {
             const update_context = UpdateContext{
+                .allocator = self.allocator,
                 .dt = dt,
                 .input_state = &input_state,
                 .viewport_size = viewport_size,
@@ -238,6 +249,7 @@ pub const SceneManager = struct {
 
         if (self.current_scene) |scene| {
             const render_context = RenderContext{
+                .allocator = self.allocator,
                 .dt = dt,
                 .viewport_size = viewport_size,
                 .scene_data = self.current_scene_data,
@@ -258,6 +270,7 @@ pub const SceneManager = struct {
 
         if (self.current_scene) |scene| {
             const draw_ui_context = DrawUiContext{
+                .allocator = self.allocator,
                 .dt = dt,
                 .viewport_size = viewport_size,
                 .scene_commands = command_buffer,

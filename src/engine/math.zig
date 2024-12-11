@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const zbox = @import("zbox");
+const b2 = zbox.API;
+
 pub const vec2 = struct {
     x: f32,
     y: f32,
@@ -14,6 +17,20 @@ pub const vec2 = struct {
     pub fn get_array(self: vec2) [2]f32 {
         return [2]f32{
             self.x, self.y,
+        };
+    }
+
+    pub fn to_b2(self: vec2) b2.b2Vec2 {
+        return b2.b2Vec2{
+            .x = self.x,
+            .y = self.y,
+        };
+    }
+
+    pub fn from_b2(other: b2.b2Vec2) vec2 {
+        return vec2{
+            .x = other.x,
+            .y = other.y,
         };
     }
 

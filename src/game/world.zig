@@ -17,11 +17,151 @@ pub const GroundPointIndex = struct {
 
 pub const GroundSegment = @import("ground_segment.zig").GroundSegment;
 
+pub const Block = struct {
+    //
+    alive: bool,
+    //
+    local_position: vec2,
+    shape_id: b2.b2ShapeId,
+
+    pub fn create(body_id: b2.b2BodyId, local_position: vec2) Block {
+        //
+        const box = b2.b2MakeOffsetBox(0.5, 0.5, local_position.to_b2(), b2.b2Rot_identity); // 1x1
+
+        var shape_def = b2.b2DefaultShapeDef();
+        shape_def.density = 1.0;
+        shape_def.friction = 0.3;
+
+        const shape_id = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
+
+        const block = Block{
+            .alive = true,
+            .local_position = local_position,
+            .shape_id = shape_id,
+        };
+
+        return block;
+    }
+
+    pub fn destroy(self: *Block) void {
+        std.debug.assert(self.alive);
+
+        //
+        b2.b2DestroyShape(self.shape_id, true);
+
+        self.alive = false;
+    }
+};
+
+pub const Vehicle = struct {
+    //
+    alive: bool,
+    //
+    body_id: b2.b2BodyId,
+    blocks: std.ArrayList(Block),
+
+    pub fn create(allocator: std.mem.Allocator, world_id: b2.b2WorldId, position: vec2) Vehicle {
+        var body_def = b2.b2DefaultBodyDef();
+        body_def.type = b2.b2_dynamicBody;
+        body_def.position.x = position.x;
+        body_def.position.y = position.y;
+        const body_id = b2.b2CreateBody(world_id, &body_def);
+
+        var vehicle = Vehicle{
+            .alive = true,
+            .body_id = body_id,
+            .blocks = std.ArrayList(Block).init(allocator),
+        };
+
+        vehicle.createBlock(vec2.init(0, 0));
+        vehicle.createBlock(vec2.init(1, 0));
+
+        return vehicle;
+    }
+
+    pub fn destroy(self: *Vehicle) void {
+        std.debug.assert(self.alive);
+
+        for (self.blocks.items) |*block| {
+            if (!block.alive) continue;
+            block.destroy();
+        }
+
+        self.blocks.deinit();
+
+        b2.b2DestroyBody(self.body_id);
+
+        self.alive = false;
+    }
+
+    pub fn getPosition(self: *Vehicle) vec2 {
+        std.debug.assert(self.alive);
+
+        const b2pos = b2.b2Body_GetPosition(self.body_id);
+        return vec2.from_b2(b2pos);
+    }
+
+    pub fn transformWorldToLocal(self: *Vehicle, world_position: vec2) vec2 {
+        std.debug.assert(self.alive);
+
+        const transform = b2.b2Body_GetTransform(self.body_id);
+        const local = vec2.from_b2(b2.b2InvTransformPoint(transform, world_position.to_b2()));
+        return local;
+    }
+
+    pub fn createBlock(self: *Vehicle, local_position: vec2) void {
+        std.debug.assert(self.alive);
+
+        const block = Block.create(self.body_id, local_position);
+        self.blocks.append(block) catch unreachable;
+    }
+
+    pub fn getClosestBlock(self: *Vehicle, world_position: vec2) ?*Block {
+        std.debug.assert(self.alive);
+
+        var closest_dist: f32 = std.math.floatMax(f32);
+        var closest_block: ?*Block = null;
+
+        const vehicle_position = self.getPosition();
+
+        for (self.blocks.items) |*block| {
+            if (!block.alive) continue;
+
+            const block_position = vehicle_position.add(block.local_position);
+            const dist = vec2.dist(world_position, block_position);
+
+            if (dist < closest_dist) {
+                closest_dist = dist;
+                closest_block = block;
+            }
+        }
+
+        return closest_block;
+    }
+
+    pub fn destroyBlock(self: *Vehicle, world_position: vec2) void {
+        std.debug.assert(self.alive);
+
+        if (self.getClosestBlock(world_position)) |closest_block| {
+            closest_block.destroy();
+
+            if (self.blocks.items.len == 0) {
+                self.destroy();
+            }
+        }
+    }
+};
+
+// b2 user data
+// body -> Vehicle
+// shape -> Block ?
+
 pub const World = struct {
     allocator: std.mem.Allocator,
     size: vec2,
-    ground_segments: std.ArrayList(GroundSegment),
     world_id: b2.b2WorldId,
+    ground_segments: std.ArrayList(GroundSegment),
+    vehicles: std.ArrayList(Vehicle),
 
     pub fn create(allocator: std.mem.Allocator) World {
         const world_width = 200.0;
@@ -72,6 +212,7 @@ pub const World = struct {
             .allocator = allocator,
             .size = vec2.init(100, 100),
             .ground_segments = std.ArrayList(GroundSegment).init(allocator),
+            .vehicles = std.ArrayList(Vehicle).init(allocator),
 
             .world_id = world_id,
         };
@@ -81,6 +222,12 @@ pub const World = struct {
         self.clear();
 
         self.ground_segments.deinit();
+
+        for (self.vehicles.items) |*vehicle| {
+            vehicle.destroy();
+        }
+
+        self.vehicles.deinit();
     }
 
     pub fn clear(self: *World) void {
@@ -206,18 +353,55 @@ pub const World = struct {
         body_def.type = b2.b2_dynamicBody;
         body_def.position.x = position.x;
         body_def.position.y = position.y;
+
+        //body_def.fixedRotation = true;
+
         const body_id = b2.b2CreateBody(self.world_id, &body_def);
 
-        const box = b2.b2MakeBox(1.0, 1.0);
+        const box = b2.b2MakeBox(2.0, 1.0); // 4x2
         var shape_def = b2.b2DefaultShapeDef();
         shape_def.density = 1.0;
         shape_def.friction = 0.3;
-        shape_def.restitution = 0.5;
+        //shape_def.restitution = 0.5;
         _ = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
 
         //var entity = self.createEntity();
         //entity.body_id = body_id;
         //self.entities.append(entity) catch unreachable;
+    }
+
+    //
+    // vehicles
+    //
+
+    pub fn createVehicle(self: *World, position: vec2) void {
+        const vehicle = Vehicle.create(self.allocator, self.world_id, position);
+        self.vehicles.append(vehicle) catch unreachable;
+    }
+
+    pub fn getClosestVehicle(self: *World, position: vec2, max_distance: f32) ?*Vehicle {
+        var closest_dist: f32 = std.math.floatMax(f32);
+        var closest_vehicle: ?*Vehicle = null;
+
+        for (self.vehicles.items) |*vehicle| {
+            if (!vehicle.alive) continue;
+
+            const vehicle_position = vehicle.getPosition();
+
+            for (vehicle.blocks.items) |block| {
+                if (!block.alive) continue;
+
+                const block_position = vehicle_position.add(block.local_position);
+                const dist = vec2.dist(block_position, position);
+
+                if (dist < max_distance and dist < closest_dist) {
+                    closest_dist = dist;
+                    closest_vehicle = vehicle;
+                }
+            }
+        }
+
+        return closest_vehicle;
     }
 };
 

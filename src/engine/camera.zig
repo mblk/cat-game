@@ -34,20 +34,11 @@ pub const Camera = struct {
 
         const zoom: f32 = std.math.pow(f32, 1.2, @as(f32, @floatFromInt(self.zoom_level)));
 
-        const width = 200.0 * zoom;
+        const width = 100.0 * zoom; // target x-visibility at 100% zoom
         const height = width / window_ratio;
-
-        //const zoom = @powf(1.2, @floatFromInt(self.zoom_level));
-
-        //const left = -0.5 * width * zoom;
-        // const right = 0.5 * width * zoom;
-        // const top = 0.5 * height * zoom;
-        // const bottom = -0.5 * height * zoom;
 
         const near = 0.001;
         const far = 1000.0;
-
-        //std.log.debug("camera update {d} {d} {d}", .{ width, height, zoom });
 
         self.projection = zmath.orthographicRhGl(width, height, near, far); // -width/2 ... +width/2
         //self.view = zmath.identity(); // focuspoint + offset
@@ -68,10 +59,6 @@ pub const Camera = struct {
         self.viewport_size = size;
         self.update();
     }
-
-    // pub fn getViewportSize(self: *const Camera) zmath.Vec2 {
-    //     return zmath.Vec2.init(@floatFromInt(f32, self.window_width), @floatFromInt(f32, self.window_height));
-    // }
 
     pub fn reset(self: *Camera) void {
         self.zoom_level = 0;
