@@ -13,7 +13,12 @@ const GroundPointIndex = @import("../world.zig").GroundPointIndex;
 const GroundSegmentIndex = @import("../world.zig").GroundSegmentIndex;
 const GroundSegment = @import("../world.zig").GroundSegment;
 
-const ToolVTable = @import("tool.zig").ToolVTable;
+const tools = @import("tools.zig");
+const ToolVTable = tools.ToolVTable;
+const ToolDeps = tools.ToolDeps;
+const ToolUpdateContext = tools.ToolUpdateContext;
+const ToolRenderContext = tools.ToolRenderContext;
+const ToolDrawUiContext = tools.ToolDrawUiContext;
 
 const Selection = union(enum) {
     None: void,
@@ -42,26 +47,29 @@ pub const GroundEditTool = struct {
         };
     }
 
-    fn create(allocator: std.mem.Allocator, world: *World, renderer2D: *engine.Renderer2D) !*anyopaque {
+    fn create(allocator: std.mem.Allocator, deps: ToolDeps) !*anyopaque {
         const self = try allocator.create(Self);
 
         self.* = Self{
             .allocator = allocator,
-            .world = world,
-            .renderer2D = renderer2D,
+            .world = deps.world,
+            .renderer2D = deps.renderer2D,
         };
 
         return self;
     }
 
-    fn destroy(context: *anyopaque) void {
-        const self: *Self = @ptrCast(@alignCast(context));
+    fn destroy(self_ptr: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(self_ptr));
 
         self.allocator.destroy(self);
     }
 
-    fn update(context: *anyopaque, input: *engine.InputState, mouse_position: vec2) void {
-        const self: *Self = @ptrCast(@alignCast(context));
+    fn update(self_ptr: *anyopaque, context: ToolUpdateContext) void {
+        const self: *Self = @ptrCast(@alignCast(self_ptr));
+
+        const input = context.input;
+        const mouse_position = context.mouse_position;
 
         switch (self.selection) {
             .None => {
@@ -193,8 +201,10 @@ pub const GroundEditTool = struct {
         }
     }
 
-    fn render(context: *anyopaque) void {
-        const self: *Self = @ptrCast(@alignCast(context));
+    fn render(self_ptr: *anyopaque, context: ToolRenderContext) void {
+        const self: *Self = @ptrCast(@alignCast(self_ptr));
+
+        _ = context;
 
         for (self.world.ground_segments.items) |*segment| {
             // show grab handle
@@ -219,8 +229,10 @@ pub const GroundEditTool = struct {
         }
     }
 
-    fn drawUi(context: *anyopaque) void {
-        const self: *Self = @ptrCast(@alignCast(context));
+    fn drawUi(self_ptr: *anyopaque, context: ToolDrawUiContext) void {
+        const self: *Self = @ptrCast(@alignCast(self_ptr));
+
+        _ = context;
 
         switch (self.selection) {
             .None => {

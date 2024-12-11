@@ -2,6 +2,7 @@ pub const Window = @import("window.zig");
 pub const InputState = @import("input_state.zig");
 
 pub const SceneManager = @import("scene_manager.zig").SceneManager;
+pub const SceneDescriptor = @import("scene_manager.zig").SceneDescriptor;
 pub const Scene = @import("scene_manager.zig").Scene;
 
 pub const LoadContext = @import("scene_manager.zig").LoadContext;

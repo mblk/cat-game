@@ -109,6 +109,14 @@ pub const Vehicle = struct {
         return local;
     }
 
+    pub fn transformLocalToWorld(self: *Vehicle, local_position: vec2) vec2 {
+        std.debug.assert(self.alive);
+
+        const transform = b2.b2Body_GetTransform(self.body_id);
+        const world = vec2.from_b2(b2.b2TransformPoint(transform, local_position.to_b2()));
+        return world;
+    }
+
     pub fn createBlock(self: *Vehicle, local_position: vec2) void {
         std.debug.assert(self.alive);
 
@@ -122,12 +130,14 @@ pub const Vehicle = struct {
         var closest_dist: f32 = std.math.floatMax(f32);
         var closest_block: ?*Block = null;
 
-        const vehicle_position = self.getPosition();
+        //const vehicle_position = self.getPosition();
+        const vehicle_transform = b2.b2Body_GetTransform(self.body_id);
 
         for (self.blocks.items) |*block| {
             if (!block.alive) continue;
 
-            const block_position = vehicle_position.add(block.local_position);
+            //const block_position = vehicle_position.add(block.local_position);
+            const block_position = vec2.from_b2(b2.b2TransformPoint(vehicle_transform, block.local_position.to_b2()));
             const dist = vec2.dist(world_position, block_position);
 
             if (dist < closest_dist) {
@@ -379,24 +389,34 @@ pub const World = struct {
         self.vehicles.append(vehicle) catch unreachable;
     }
 
-    pub fn getClosestVehicle(self: *World, position: vec2, max_distance: f32) ?*Vehicle {
+    pub const ClosestVehicleResult = struct {
+        vehicle: *Vehicle,
+        block_local: vec2,
+        block_world: vec2,
+    };
+
+    pub fn getClosestVehicle(self: *World, position: vec2, max_distance: f32) ?ClosestVehicleResult {
         var closest_dist: f32 = std.math.floatMax(f32);
-        var closest_vehicle: ?*Vehicle = null;
+        var closest_vehicle: ?ClosestVehicleResult = null;
 
         for (self.vehicles.items) |*vehicle| {
             if (!vehicle.alive) continue;
 
-            const vehicle_position = vehicle.getPosition();
+            const vehicle_transform = b2.b2Body_GetTransform(vehicle.body_id);
 
             for (vehicle.blocks.items) |block| {
                 if (!block.alive) continue;
 
-                const block_position = vehicle_position.add(block.local_position);
+                const block_position = vec2.from_b2(b2.b2TransformPoint(vehicle_transform, block.local_position.to_b2()));
                 const dist = vec2.dist(block_position, position);
 
                 if (dist < max_distance and dist < closest_dist) {
                     closest_dist = dist;
-                    closest_vehicle = vehicle;
+                    closest_vehicle = ClosestVehicleResult{
+                        .vehicle = vehicle,
+                        .block_local = block.local_position,
+                        .block_world = block_position,
+                    };
                 }
             }
         }

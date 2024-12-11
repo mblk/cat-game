@@ -140,11 +140,21 @@ pub const Player = struct {
     }
 
     pub fn update(self: *Player, dt: f32, input: *engine.InputState, mouse_position: vec2, control_enabled: bool) void {
-
         //
         _ = dt;
 
-        _ = control_enabled;
+        if (!control_enabled) {
+            self.show_hand = false;
+
+            if (self.has_mouse_joint) {
+                b2.b2DestroyJoint(self.mouse_joint);
+
+                self.mouse_joint = b2.b2_nullJointId;
+                self.has_mouse_joint = false;
+            }
+
+            return;
+        }
 
         const player_position = b2.b2Body_GetPosition(self.body_id);
         const player_velocity = b2.b2Body_GetLinearVelocity(self.body_id);

@@ -7,6 +7,8 @@ pub const vec2 = struct {
     x: f32,
     y: f32,
 
+    pub const zero = init(0, 0);
+
     pub fn init(x: f32, y: f32) vec2 {
         return vec2{
             .x = x,

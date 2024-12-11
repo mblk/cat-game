@@ -10,45 +10,21 @@ const InputState = @import("input_state.zig");
 const ContentManager = @import("content_manager.zig").ContentManager;
 const SaveManager = @import("save_manager.zig").SaveManager;
 
-pub const Scene = struct {
+pub const SceneDescriptor = struct {
+    // desc
     name: []const u8,
-    load: *const fn (context: *const LoadContext) anyerror!*anyopaque = load_default, // TODO keep defaults or remove?
-    unload: *const fn (context: *const UnloadContext) void = unload_default,
-    update: *const fn (context: *const UpdateContext) void = update_default,
-    render: *const fn (context: *const RenderContext) void = render_default,
-    draw_ui: *const fn (context: *const DrawUiContext) void = draw_ui_default,
-
-    const DummyData = struct {
-        a: i32,
-    };
-
-    fn load_default(context: *const LoadContext) !*anyopaque {
-        var data = try context.allocator.create(DummyData);
-        data.a = 123;
-        return @ptrCast(data);
-    }
-
-    fn unload_default(context: *const UnloadContext) void {
-        const data: *DummyData = @ptrCast(@alignCast(context.scene_data));
-        std.debug.assert(data.a == 123);
-        context.allocator.destroy(data);
-    }
-
-    fn update_default(context: *const UpdateContext) void {
-        _ = context;
-    }
-
-    fn render_default(context: *const RenderContext) void {
-        _ = context;
-    }
-
-    fn draw_ui_default(context: *const DrawUiContext) void {
-        _ = context;
-    }
+    // vtable
+    load: *const fn (context: *const LoadContext) anyerror!*anyopaque,
+    unload: *const fn (self_ptr: *anyopaque, context: *const UnloadContext) void,
+    update: *const fn (self_ptr: *anyopaque, context: *const UpdateContext) void,
+    render: *const fn (self_ptr: *anyopaque, context: *const RenderContext) void,
+    draw_ui: *const fn (self_ptr: *anyopaque, context: *const DrawUiContext) void,
 };
 
-// ctx: *anyopaque,
-// const self: *Self = @ptrCast(@alignCast(ctx));
+pub const Scene = struct {
+    descriptor: SceneDescriptor,
+    self_ptr: *anyopaque,
+};
 
 // TODO
 // - think about different allocators (eg. arena allocator for per-frame-data)
@@ -65,7 +41,6 @@ pub const LoadContext = struct {
 pub const UnloadContext = struct {
     allocator: std.mem.Allocator,
     content_manager: *ContentManager,
-    scene_data: *anyopaque,
 };
 
 pub const UpdateContext = struct {
@@ -74,7 +49,6 @@ pub const UpdateContext = struct {
     input_state: *InputState,
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
-    scene_data: *anyopaque, // TODO besser als argument?
 };
 
 pub const RenderContext = struct {
@@ -82,7 +56,6 @@ pub const RenderContext = struct {
     dt: f32,
     //renderer?
     viewport_size: [2]i32,
-    scene_data: *anyopaque,
 };
 
 pub const DrawUiContext = struct {
@@ -90,7 +63,6 @@ pub const DrawUiContext = struct {
     dt: f32,
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
-    scene_data: *anyopaque,
 
     save_manager: *SaveManager,
 };
@@ -110,9 +82,8 @@ pub const SceneManager = struct {
     save_manager: *SaveManager,
 
     // scenes
-    all_scenes: std.ArrayList(Scene),
-    current_scene: ?*Scene,
-    current_scene_data: *anyopaque, // TODO maybe move to scene struct?
+    all_scenes: std.ArrayList(SceneDescriptor),
+    active_scene: ?Scene,
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -126,9 +97,8 @@ pub const SceneManager = struct {
             .content_manager = content_manager,
             .save_manager = save_manager,
 
-            .all_scenes = std.ArrayList(Scene).init(allocator),
-            .current_scene = null,
-            .current_scene_data = undefined,
+            .all_scenes = std.ArrayList(SceneDescriptor).init(allocator),
+            .active_scene = null,
         };
     }
 
@@ -138,9 +108,9 @@ pub const SceneManager = struct {
         self.all_scenes.deinit();
     }
 
-    pub fn registerScene(self: *SceneManager, scene: Scene) !void {
-        std.log.info("register new scene: {s}", .{scene.name});
-        try self.all_scenes.append(scene);
+    pub fn registerScene(self: *SceneManager, scene_descriptor: SceneDescriptor) !void {
+        std.log.info("register new scene: {s}", .{scene_descriptor.name});
+        try self.all_scenes.append(scene_descriptor);
     }
 
     pub fn switchScene(self: *SceneManager, new_scene_name: []const u8) void {
@@ -155,34 +125,35 @@ pub const SceneManager = struct {
             self.loadNewScene(new_scene) catch |e| {
                 std.log.err("failed to lead new scene: {any}", .{e});
 
-                self.current_scene = null;
-                self.current_scene_data = undefined;
+                self.active_scene = null;
             };
         }
     }
 
     fn unloadCurrentScene(self: *SceneManager) void {
-        if (self.current_scene) |scene| {
+        if (self.active_scene) |scene| {
             const unload_context = UnloadContext{
                 .allocator = self.allocator,
                 .content_manager = self.content_manager,
-                .scene_data = self.current_scene_data,
             };
 
-            std.log.info("unloading scene: {s}", .{scene.name});
-            scene.unload(&unload_context);
+            std.log.info("unloading scene: {s}", .{scene.descriptor.name});
+            scene.descriptor.unload(scene.self_ptr, &unload_context);
         }
     }
 
-    fn loadNewScene(self: *SceneManager, new_scene: *Scene) !void {
+    fn loadNewScene(self: *SceneManager, scene_descriptor: SceneDescriptor) !void {
+        std.log.info("loading scene: {s}", .{scene_descriptor.name});
+
         const load_context = LoadContext{
             .allocator = self.allocator,
             .content_manager = self.content_manager,
         };
 
-        std.log.info("loading scene: {s}", .{new_scene.name});
-        self.current_scene_data = try new_scene.load(&load_context);
-        self.current_scene = new_scene; // only assign on success
+        self.active_scene = Scene{
+            .descriptor = scene_descriptor,
+            .self_ptr = try scene_descriptor.load(&load_context),
+        };
     }
 
     pub fn runMainLoop(self: *SceneManager) void {
@@ -228,17 +199,16 @@ pub const SceneManager = struct {
             self.window.setShouldClose(true);
         }
 
-        if (self.current_scene) |scene| {
+        if (self.active_scene) |scene| {
             const update_context = UpdateContext{
                 .allocator = self.allocator,
                 .dt = dt,
                 .input_state = &input_state,
                 .viewport_size = viewport_size,
                 .scene_commands = command_buffer,
-                .scene_data = self.current_scene_data,
             };
 
-            scene.update(&update_context);
+            scene.descriptor.update(scene.self_ptr, &update_context);
         }
 
         //
@@ -247,15 +217,14 @@ pub const SceneManager = struct {
         gl.clearColor(0.1, 0.1, 0.1, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        if (self.current_scene) |scene| {
+        if (self.active_scene) |scene| {
             const render_context = RenderContext{
                 .allocator = self.allocator,
                 .dt = dt,
                 .viewport_size = viewport_size,
-                .scene_data = self.current_scene_data,
             };
 
-            scene.render(&render_context);
+            scene.descriptor.render(scene.self_ptr, &render_context);
         }
 
         //
@@ -268,17 +237,16 @@ pub const SceneManager = struct {
 
         self.drawDebugUi(dt, command_buffer);
 
-        if (self.current_scene) |scene| {
+        if (self.active_scene) |scene| {
             const draw_ui_context = DrawUiContext{
                 .allocator = self.allocator,
                 .dt = dt,
                 .viewport_size = viewport_size,
                 .scene_commands = command_buffer,
-                .scene_data = self.current_scene_data,
                 .save_manager = self.save_manager,
             };
 
-            scene.draw_ui(&draw_ui_context);
+            scene.descriptor.draw_ui(scene.self_ptr, &draw_ui_context);
         }
 
         zgui.backend.draw();
@@ -296,8 +264,8 @@ pub const SceneManager = struct {
         if (zgui.begin("Debug", .{})) {
             zgui.text("dt {d:.3}", .{dt});
 
-            if (self.current_scene) |scene| {
-                zgui.text("scene: {s}", .{scene.name});
+            if (self.active_scene) |scene| {
+                zgui.text("scene: {s}", .{scene.descriptor.name});
             } else {
                 zgui.text("scene: ---", .{});
             }
@@ -317,8 +285,8 @@ pub const SceneManager = struct {
         }
     }
 
-    fn getSceneByName(self: SceneManager, name: []const u8) ?*Scene {
-        for (self.all_scenes.items) |*scene| {
+    fn getSceneByName(self: SceneManager, name: []const u8) ?SceneDescriptor {
+        for (self.all_scenes.items) |scene| {
             if (std.mem.eql(u8, name, scene.name)) {
                 return scene;
             }
