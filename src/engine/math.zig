@@ -57,6 +57,24 @@ pub const vec2 = struct {
         };
     }
 
+    pub fn scale(self: vec2, factor: f32) vec2 {
+        return vec2{
+            .x = self.x * factor,
+            .y = self.y * factor,
+        };
+    }
+
+    pub fn mulPairwise(self: vec2, other: vec2) vec2 {
+        return vec2{
+            .x = self.x * other.x,
+            .y = self.y * other.y,
+        };
+    }
+
+    pub fn len(self: vec2) f32 {
+        return std.math.sqrt(self.x * self.x + self.y * self.y);
+    }
+
     pub fn dist(a: vec2, b: vec2) f32 {
         return std.math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
     }

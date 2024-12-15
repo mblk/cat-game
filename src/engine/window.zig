@@ -15,6 +15,36 @@ pub fn init(self: *Window) !void {
     std.log.info("sizeof inputstate: {d}", .{@sizeOf(InputState)});
     std.log.info("sizeof window: {d}", .{@sizeOf(Window)});
 
+    if (glfw.Monitor.getAll()) |all_monitors| {
+        for (all_monitors) |monitor| {
+            const name = try monitor.getName();
+            const pos = monitor.getPos();
+
+            std.log.info("monitor {s} pos {d} {d}", .{ name, pos[0], pos[1] });
+
+            const mode = try monitor.getVideoMode();
+
+            std.log.info("  mode {d}x{d} @ {d} Hz bits {d} {d} {d}", .{
+                mode.width,
+                mode.height,
+                mode.refresh_rate,
+                mode.red_bits,
+                mode.green_bits,
+                mode.blue_bits,
+            });
+
+            const modes = try monitor.getVideoModes();
+
+            for (modes) |m| {
+                std.log.info("  other mode {d}x{d} @ {d} Hz", .{
+                    m.width,
+                    m.height,
+                    m.refresh_rate,
+                });
+            }
+        }
+    }
+
     const size = [2]i32{ 1920, 1080 };
 
     const gl_major = 4;
@@ -28,6 +58,9 @@ pub fn init(self: *Window) !void {
     glfw.windowHintTyped(.doublebuffer, true);
 
     const glfw_window = try glfw.Window.create(size[0], size[1], "mycatgame999", null);
+
+    const content_scale = glfw_window.getContentScale();
+    std.log.info("content_scale {d} {d}", .{ content_scale[0], content_scale[1] });
 
     glfw.makeContextCurrent(glfw_window);
     glfw.swapInterval(1);

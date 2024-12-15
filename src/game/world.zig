@@ -17,154 +17,34 @@ pub const GroundPointIndex = struct {
 
 pub const GroundSegment = @import("ground_segment.zig").GroundSegment;
 
-pub const Block = struct {
-    //
-    alive: bool,
-    //
-    local_position: vec2,
-    shape_id: b2.b2ShapeId,
+const Vehicle = @import("vehicle.zig").Vehicle;
+const Block = @import("vehicle.zig").Block;
+const BlockDef = @import("vehicle.zig").BlockDef;
+const BlockRef = @import("vehicle.zig").BlockRef;
 
-    pub fn create(body_id: b2.b2BodyId, local_position: vec2) Block {
-        //
-        const box = b2.b2MakeOffsetBox(0.5, 0.5, local_position.to_b2(), b2.b2Rot_identity); // 1x1
+pub const VehicleRef = struct {
+    vehicle_index: usize,
+    //vehicle_version
 
-        var shape_def = b2.b2DefaultShapeDef();
-        shape_def.density = 1.0;
-        shape_def.friction = 0.3;
+    pub fn format(self: VehicleRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
 
-        const shape_id = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
-
-        const block = Block{
-            .alive = true,
-            .local_position = local_position,
-            .shape_id = shape_id,
-        };
-
-        return block;
-    }
-
-    pub fn destroy(self: *Block) void {
-        std.debug.assert(self.alive);
-
-        //
-        b2.b2DestroyShape(self.shape_id, true);
-
-        self.alive = false;
+        try writer.print("Vehicle(idx={d})", .{self.vehicle_index});
     }
 };
 
-pub const Vehicle = struct {
-    //
-    alive: bool,
-    //
-    body_id: b2.b2BodyId,
-    blocks: std.ArrayList(Block),
+pub const VehicleAndBlockRef = struct {
+    vehicle: VehicleRef,
+    block: BlockRef,
 
-    pub fn create(allocator: std.mem.Allocator, world_id: b2.b2WorldId, position: vec2) Vehicle {
-        var body_def = b2.b2DefaultBodyDef();
-        body_def.type = b2.b2_dynamicBody;
-        body_def.position.x = position.x;
-        body_def.position.y = position.y;
-        const body_id = b2.b2CreateBody(world_id, &body_def);
+    pub fn format(self: VehicleAndBlockRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
 
-        var vehicle = Vehicle{
-            .alive = true,
-            .body_id = body_id,
-            .blocks = std.ArrayList(Block).init(allocator),
-        };
-
-        vehicle.createBlock(vec2.init(0, 0));
-        vehicle.createBlock(vec2.init(1, 0));
-
-        return vehicle;
-    }
-
-    pub fn destroy(self: *Vehicle) void {
-        std.debug.assert(self.alive);
-
-        for (self.blocks.items) |*block| {
-            if (!block.alive) continue;
-            block.destroy();
-        }
-
-        self.blocks.deinit();
-
-        b2.b2DestroyBody(self.body_id);
-
-        self.alive = false;
-    }
-
-    pub fn getPosition(self: *Vehicle) vec2 {
-        std.debug.assert(self.alive);
-
-        const b2pos = b2.b2Body_GetPosition(self.body_id);
-        return vec2.from_b2(b2pos);
-    }
-
-    pub fn transformWorldToLocal(self: *Vehicle, world_position: vec2) vec2 {
-        std.debug.assert(self.alive);
-
-        const transform = b2.b2Body_GetTransform(self.body_id);
-        const local = vec2.from_b2(b2.b2InvTransformPoint(transform, world_position.to_b2()));
-        return local;
-    }
-
-    pub fn transformLocalToWorld(self: *Vehicle, local_position: vec2) vec2 {
-        std.debug.assert(self.alive);
-
-        const transform = b2.b2Body_GetTransform(self.body_id);
-        const world = vec2.from_b2(b2.b2TransformPoint(transform, local_position.to_b2()));
-        return world;
-    }
-
-    pub fn createBlock(self: *Vehicle, local_position: vec2) void {
-        std.debug.assert(self.alive);
-
-        const block = Block.create(self.body_id, local_position);
-        self.blocks.append(block) catch unreachable;
-    }
-
-    pub fn getClosestBlock(self: *Vehicle, world_position: vec2) ?*Block {
-        std.debug.assert(self.alive);
-
-        var closest_dist: f32 = std.math.floatMax(f32);
-        var closest_block: ?*Block = null;
-
-        //const vehicle_position = self.getPosition();
-        const vehicle_transform = b2.b2Body_GetTransform(self.body_id);
-
-        for (self.blocks.items) |*block| {
-            if (!block.alive) continue;
-
-            //const block_position = vehicle_position.add(block.local_position);
-            const block_position = vec2.from_b2(b2.b2TransformPoint(vehicle_transform, block.local_position.to_b2()));
-            const dist = vec2.dist(world_position, block_position);
-
-            if (dist < closest_dist) {
-                closest_dist = dist;
-                closest_block = block;
-            }
-        }
-
-        return closest_block;
-    }
-
-    pub fn destroyBlock(self: *Vehicle, world_position: vec2) void {
-        std.debug.assert(self.alive);
-
-        if (self.getClosestBlock(world_position)) |closest_block| {
-            closest_block.destroy();
-
-            if (self.blocks.items.len == 0) {
-                self.destroy();
-            }
-        }
+        try writer.print("{s}+{s}", .{ self.vehicle, self.block });
     }
 };
-
-// b2 user data
-// body -> Vehicle
-// shape -> Block ?
 
 pub const World = struct {
     allocator: std.mem.Allocator,
@@ -234,6 +114,7 @@ pub const World = struct {
         self.ground_segments.deinit();
 
         for (self.vehicles.items) |*vehicle| {
+            if (!vehicle.alive) continue;
             vehicle.destroy();
         }
 
@@ -384,39 +265,222 @@ pub const World = struct {
     // vehicles
     //
 
-    pub fn createVehicle(self: *World, position: vec2) void {
+    pub fn getVehicle(self: *World, vehicle_ref: VehicleRef) ?*Vehicle {
+        const vehicle = &self.vehicles.items[vehicle_ref.vehicle_index];
+
+        if (vehicle.alive) {
+            return vehicle;
+        }
+
+        return null;
+    }
+
+    pub fn createVehicle(self: *World, position: vec2) VehicleRef {
         const vehicle = Vehicle.create(self.allocator, self.world_id, position);
+
+        const index = self.vehicles.items.len;
+
         self.vehicles.append(vehicle) catch unreachable;
+
+        return VehicleRef{
+            .vehicle_index = index,
+        };
+    }
+
+    pub const VehicleAndBlockResult = struct {
+        vehicle: *Vehicle,
+        block: *Block,
+    };
+
+    pub fn getVehicleAndBlock(self: *World, ref: VehicleAndBlockRef) ?VehicleAndBlockResult {
+        if (self.getVehicle(ref.vehicle)) |vehicle| {
+            if (vehicle.getBlock(ref.block)) |block| {
+                return VehicleAndBlockResult{
+                    .vehicle = vehicle,
+                    .block = block,
+                };
+            }
+        }
+        return null;
     }
 
     pub const ClosestVehicleResult = struct {
-        vehicle: *Vehicle,
+        vehicle_and_block_ref: VehicleAndBlockRef,
+        block_def: BlockDef,
         block_local: vec2,
         block_world: vec2,
     };
 
-    pub fn getClosestVehicle(self: *World, position: vec2, max_distance: f32) ?ClosestVehicleResult {
+    pub fn getClosestVehicle(self: *World, position_world: vec2, max_distance: f32) ?ClosestVehicleResult {
         var closest_dist: f32 = std.math.floatMax(f32);
         var closest_vehicle: ?ClosestVehicleResult = null;
 
-        for (self.vehicles.items) |*vehicle| {
+        for (self.vehicles.items, 0..) |*vehicle, vehicle_index| {
             if (!vehicle.alive) continue;
 
-            const vehicle_transform = b2.b2Body_GetTransform(vehicle.body_id);
-
-            for (vehicle.blocks.items) |block| {
+            for (vehicle.blocks.items, 0..) |*block, block_index| {
                 if (!block.alive) continue;
 
-                const block_position = vec2.from_b2(b2.b2TransformPoint(vehicle_transform, block.local_position.to_b2()));
-                const dist = vec2.dist(block_position, position);
+                const block_position_world = vehicle.transformLocalToWorld(block.local_position);
+                const dist = vec2.dist(block_position_world, position_world);
 
                 if (dist < max_distance and dist < closest_dist) {
                     closest_dist = dist;
                     closest_vehicle = ClosestVehicleResult{
-                        .vehicle = vehicle,
+                        .vehicle_and_block_ref = VehicleAndBlockRef{
+                            .vehicle = VehicleRef{
+                                .vehicle_index = vehicle_index,
+                            },
+                            .block = BlockRef{
+                                .block_index = block_index,
+                            },
+                        },
+                        .block_def = block.def,
                         .block_local = block.local_position,
-                        .block_world = block_position,
+                        .block_world = block_position_world,
                     };
+                }
+            }
+        }
+
+        return closest_vehicle;
+    }
+
+    pub const ClosestBlockAttachResult = struct {
+        vehicle_ref: VehicleRef,
+        block_def: BlockDef,
+        block_local: vec2,
+        block_world: vec2,
+        attach_local: vec2,
+        attach_world: vec2,
+        normal_local: vec2,
+        normal_world: vec2,
+    };
+
+    pub fn getClosestBlockAttachPoint(self: *World, position_world: vec2, max_distance: f32, max_overhang_local: vec2) ?ClosestBlockAttachResult {
+        var closest_dist: f32 = std.math.floatMax(f32);
+        var closest_vehicle: ?ClosestBlockAttachResult = null;
+
+        for (self.vehicles.items, 0..) |*vehicle, vehicle_index| {
+            if (!vehicle.alive) continue;
+
+            const position_local = vehicle.transformWorldToLocal(position_world);
+
+            for (vehicle.blocks.items) |*block| {
+                if (!block.alive) continue;
+
+                const hw = block.def.size.x * 0.5;
+                const hh = block.def.size.y * 0.5;
+
+                // target position in block space
+                const p = position_local.sub(block.local_position);
+
+                if (-max_overhang_local.x - hw < p.x and p.x < hw + max_overhang_local.x) {
+                    // top edge
+                    {
+                        const dist = @abs(hh - p.y);
+                        const attach_local = block.local_position.add(vec2.init(p.x, hh));
+                        const normal_local = vec2.init(0, 1);
+
+                        if (dist < max_distance and dist < closest_dist) {
+                            closest_dist = dist;
+                            closest_vehicle = ClosestBlockAttachResult{
+                                .vehicle_ref = VehicleRef{
+                                    .vehicle_index = vehicle_index,
+                                },
+
+                                .block_def = block.def,
+                                .block_local = block.local_position,
+                                .block_world = vehicle.transformLocalToWorld(block.local_position),
+
+                                .attach_local = attach_local,
+                                .attach_world = vehicle.transformLocalToWorld(attach_local),
+
+                                .normal_local = normal_local,
+                                .normal_world = vehicle.rotateLocalToWorld(normal_local),
+                            };
+                        }
+                    }
+
+                    // bottom edge
+                    {
+                        const dist = @abs(-hh - p.y);
+                        const attach_local = block.local_position.add(vec2.init(p.x, -hh));
+                        const normal_local = vec2.init(0, -1);
+
+                        if (dist < max_distance and dist < closest_dist) {
+                            closest_dist = dist;
+                            closest_vehicle = ClosestBlockAttachResult{
+                                .vehicle_ref = VehicleRef{
+                                    .vehicle_index = vehicle_index,
+                                },
+
+                                .block_def = block.def,
+                                .block_local = block.local_position,
+                                .block_world = vehicle.transformLocalToWorld(block.local_position),
+
+                                .attach_local = attach_local,
+                                .attach_world = vehicle.transformLocalToWorld(attach_local),
+
+                                .normal_local = normal_local,
+                                .normal_world = vehicle.rotateLocalToWorld(normal_local),
+                            };
+                        }
+                    }
+                }
+
+                if (-max_overhang_local.y - hh < p.y and p.y < hh + max_overhang_local.y) {
+                    // right edge
+                    {
+                        const dist = @abs(hw - p.x);
+                        const attach_local = block.local_position.add(vec2.init(hw, p.y));
+                        const normal_local = vec2.init(1, 0);
+
+                        if (dist < max_distance and dist < closest_dist) {
+                            closest_dist = dist;
+                            closest_vehicle = ClosestBlockAttachResult{
+                                .vehicle_ref = VehicleRef{
+                                    .vehicle_index = vehicle_index,
+                                },
+
+                                .block_def = block.def,
+                                .block_local = block.local_position,
+                                .block_world = vehicle.transformLocalToWorld(block.local_position),
+
+                                .attach_local = attach_local,
+                                .attach_world = vehicle.transformLocalToWorld(attach_local),
+
+                                .normal_local = normal_local,
+                                .normal_world = vehicle.rotateLocalToWorld(normal_local),
+                            };
+                        }
+                    }
+
+                    // left edge
+                    {
+                        const dist = @abs(-hw - p.x);
+                        const attach_local = block.local_position.add(vec2.init(-hw, p.y));
+                        const normal_local = vec2.init(-1, 0);
+
+                        if (dist < max_distance and dist < closest_dist) {
+                            closest_dist = dist;
+                            closest_vehicle = ClosestBlockAttachResult{
+                                .vehicle_ref = VehicleRef{
+                                    .vehicle_index = vehicle_index,
+                                },
+
+                                .block_def = block.def,
+                                .block_local = block.local_position,
+                                .block_world = vehicle.transformLocalToWorld(block.local_position),
+
+                                .attach_local = attach_local,
+                                .attach_world = vehicle.transformLocalToWorld(attach_local),
+
+                                .normal_local = normal_local,
+                                .normal_world = vehicle.rotateLocalToWorld(normal_local),
+                            };
+                        }
+                    }
                 }
             }
         }

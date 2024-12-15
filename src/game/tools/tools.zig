@@ -33,6 +33,7 @@ pub const ToolDeps = struct {
 pub const ToolUpdateContext = struct {
     input: *engine.InputState,
     mouse_position: vec2,
+    mouse_diff: vec2,
 };
 
 pub const ToolRenderContext = struct {

@@ -8,27 +8,19 @@ const Color = engine.Color;
 const zbox = @import("zbox");
 const b2 = zbox.API;
 
-const World = @import("../game/world.zig").World;
-const GroundPointIndex = @import("../game/world.zig").GroundPointIndex;
-const GroundSegmentIndex = @import("../game/world.zig").GroundSegmentIndex;
-const GroundSegment = @import("../game/world.zig").GroundSegment;
+const game = @import("../game/game.zig");
+const World = game.World;
+const Vehicle = game.Vehicle;
+const Player = game.Player;
 
-const WorldExporter = @import("../game/world_export.zig").WorldExporter;
-const WorldImporter = @import("../game/world_export.zig").WorldImporter;
-
-const Player = @import("../game/player.zig").Player;
+const world_export = @import("../game/world_export.zig");
+const WorldExporter = world_export.WorldExporter;
+const WorldImporter = world_export.WorldImporter;
 
 const tools = @import("../game/tools/tools.zig");
 const ToolManager = tools.ToolManager;
-
 const GroundEditTool = @import("../game/tools/ground_edit_tool.zig").GroundEditTool;
 const VehicleEditTool = @import("../game/tools/vehicle_edit_tool.zig").VehicleEditTool;
-
-const MasterMode = enum {
-    Idle,
-    ControlPlayer,
-    CreateBox,
-};
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
@@ -43,6 +35,12 @@ pub fn getScene() engine.SceneDescriptor {
 
 const GameScene = struct {
     const Self = GameScene;
+
+    const MasterMode = enum {
+        Idle,
+        ControlPlayer,
+        CreateBox,
+    };
 
     // state
     world: World,
@@ -71,8 +69,8 @@ const GameScene = struct {
         var world = World.create(context.allocator);
         errdefer world.free();
         //try world.load();
-        world.createDynamicBox(vec2.init(10, 10));
-        world.createDynamicBox(vec2.init(15, 10));
+        //world.createDynamicBox(vec2.init(10, 10));
+        //world.createDynamicBox(vec2.init(15, 10));
         world.createDynamicBox(vec2.init(20, 10));
 
         const player = Player.create(world.world_id);
@@ -122,11 +120,6 @@ const GameScene = struct {
     fn update(self_ptr: *anyopaque, context: *const engine.UpdateContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        // update physics
-        // TODO figure out optimal order of things
-        // data.player.update(context.dt, context.input_state);
-        // data.world.update(context.dt);
-
         // TODO only set when changed?
         self.camera.setViewportSize(context.viewport_size);
 
@@ -174,6 +167,7 @@ const GameScene = struct {
         self.tool_manager.update(.{
             .input = context.input_state,
             .mouse_position = mouse_position,
+            .mouse_diff = self.mouse_diff,
         });
 
         // camera movement
@@ -192,10 +186,8 @@ const GameScene = struct {
 
         // pan camera?
         if (!self.moving_camera and context.input_state.consumeMouseButtonDownEvent(.right)) {
-            //std.log.info("start moving camera", .{});
             self.moving_camera = true;
         } else if (self.moving_camera and !context.input_state.getMouseButtonState(.right)) {
-            //std.log.info("stop moving camera", .{});
             self.moving_camera = false;
         } else if (self.moving_camera) {
             self.camera.changePosition(self.mouse_diff.neg());
@@ -214,7 +206,7 @@ const GameScene = struct {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
         // mouse
-        self.renderer.addPointWithPixelSize(self.mouse_position, 10.0, Color.green);
+        //self.renderer.addPointWithPixelSize(self.mouse_position, 10.0, Color.green);
 
         // physics
         b2.b2World_Draw(self.world.world_id, &self.zbox_renderer.b2_debug_draw);
@@ -223,9 +215,6 @@ const GameScene = struct {
         self.player.render(context.dt, self.renderer);
 
         // tool
-        // if (data.active_tool) |tool| {
-        //     tool.vtable.render(tool.context);
-        // }
         self.tool_manager.render(.{});
 
         self.renderer.render(&self.camera);
@@ -234,7 +223,7 @@ const GameScene = struct {
     fn drawUi(self_ptr: *anyopaque, context: *const engine.DrawUiContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        zgui.setNextWindowPos(.{ .x = 10.0, .y = 500.0, .cond = .appearing });
+        zgui.setNextWindowPos(.{ .x = 10.0, .y = 400.0, .cond = .appearing });
         //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
         if (zgui.begin("Game", .{})) {
@@ -250,8 +239,6 @@ const GameScene = struct {
                 .buf = &self.save_name_buffer,
             });
 
-            //std.log.info("b1 {} buffer '{s}'", .{ b1, data.save_name_buffer });
-
             if (zgui.button("export", .{})) {
                 const s = getSliceFromSentinelArray(&self.save_name_buffer);
                 exportWorld(&self.world, context.save_manager, s) catch |e| {
@@ -266,6 +253,12 @@ const GameScene = struct {
                     std.log.err("import: {any}", .{e});
                 };
             }
+
+            //
+            // tools
+            //
+
+            zgui.separator();
 
             if (self.tool_manager.active_tool) |tool| {
                 zgui.text("tool: {s}", .{tool.vtable.name});
@@ -285,10 +278,13 @@ const GameScene = struct {
                 }
             }
 
-            // tool
             self.tool_manager.drawUi(.{});
 
-            zgui.text("build mode:", .{});
+            //
+            // master mode
+            //
+            zgui.separator();
+            zgui.text("master mode: {s}", .{@tagName(self.master_mode)});
 
             inline for (@typeInfo(MasterMode).@"enum".fields) |field| {
                 const enumValue = @field(MasterMode, field.name);
@@ -298,16 +294,25 @@ const GameScene = struct {
                 }
             }
 
+            //
+            // physics
+            //
+
             if (zgui.collapsingHeader("physics", .{})) {
                 self.zbox_renderer.drawUi();
             }
+
+            // vehicles
 
             if (zgui.collapsingHeader("vehicles", .{})) {
                 for (self.world.vehicles.items) |vehicle| {
                     zgui.text("vehicle alive={} blocks={d}", .{ vehicle.alive, vehicle.blocks.items.len });
 
-                    for (vehicle.blocks.items) |block| {
-                        zgui.text("  block alive={} pos={d} {d}", .{ block.alive, block.local_position.x, block.local_position.y });
+                    // arraylist only valid if alive
+                    if (vehicle.alive) {
+                        for (vehicle.blocks.items) |block| {
+                            zgui.text("  block alive={} def={s} pos={d} {d}", .{ block.alive, block.def.id, block.local_position.x, block.local_position.y });
+                        }
                     }
                 }
             }
