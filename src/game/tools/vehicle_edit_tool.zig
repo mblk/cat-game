@@ -16,6 +16,7 @@ const Vehicle = @import("../vehicle.zig").Vehicle;
 const Block = @import("../vehicle.zig").Block;
 const BlockDef = @import("../vehicle.zig").BlockDef;
 const BlockRef = @import("../vehicle.zig").BlockRef;
+const BlockConnectionEdge = @import("../vehicle.zig").BlockConnectionEdge;
 
 const tools = @import("tools.zig");
 const ToolVTable = tools.ToolVTable;
@@ -170,7 +171,8 @@ pub const VehicleEditTool = struct {
                     self.renderBlockPreviewOnVehicle(block_def, vehicle, build_pos_local, preview_color);
 
                     if (can_build and input.consumeMouseButtonDownEvent(.left)) {
-                        vehicle.createBlock(block_def, build_pos_local);
+                        const new_block_ref = vehicle.createBlock(block_def, build_pos_local);
+                        _ = new_block_ref;
                     }
                 } else {
                     const build_pos_world = mouse_position;
@@ -183,7 +185,8 @@ pub const VehicleEditTool = struct {
                         const vehicle_ref = self.world.createVehicle(build_pos_world);
                         const vehicle = self.world.getVehicle(vehicle_ref).?;
 
-                        vehicle.createBlock(block_def, vec2.init(0, 0));
+                        const new_block_ref = vehicle.createBlock(block_def, vec2.init(0, 0));
+                        _ = new_block_ref;
                     }
                 }
             },
@@ -294,6 +297,27 @@ pub const VehicleEditTool = struct {
             },
 
             else => {},
+        }
+
+        // -----
+        for (self.world.vehicles.items) |*vehicle| {
+            if (!vehicle.alive) continue;
+
+            for (vehicle.block_connection_graph.edges.items) |edge| {
+                // const block1: BlockRef = edge.block1;
+                // const block2: BlockRef = edge.block2;
+
+                const p_local = edge.center_local;
+                const n_local = edge.normal_local;
+
+                const p_world = vehicle.transformLocalToWorld(p_local);
+                const n_world = vehicle.rotateLocalToWorld(n_local);
+
+                const p1 = p_world.add(n_world.scale(0.2));
+                const p2 = p_world.sub(n_world.scale(0.2));
+
+                self.renderer2D.addLine(p1, p2, Color.green);
+            }
         }
     }
 

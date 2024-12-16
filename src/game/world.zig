@@ -133,8 +133,70 @@ pub const World = struct {
         _ = dt;
 
         for (self.ground_segments.items) |*ground_segment| {
+            // TODO: add dirty flag?
             // XXX could use a temporary per-frame arena allocator here
             ground_segment.update(self.allocator);
+        }
+
+        for (self.vehicles.items) |*vehicle| {
+            if (!vehicle.alive) continue;
+            if (!vehicle.edit_flag) continue;
+            vehicle.edit_flag = false;
+
+            // delete vehicle?
+            {
+                var num_alive_blocks: usize = 0;
+                for (vehicle.blocks.items) |block| {
+                    if (block.alive) {
+                        num_alive_blocks += 1;
+                    }
+                }
+                if (num_alive_blocks == 0) {
+                    std.log.info("destroy vehicle", .{});
+                    vehicle.destroy();
+                    continue;
+                }
+            }
+
+            // split vehicle?
+            {
+                //
+                var split_result = vehicle.getSplitParts(self.allocator); // XXX should use temp arena
+                defer split_result.deinit();
+
+                std.log.info("split:", .{});
+                const parts = split_result.parts;
+                for (parts) |part| {
+                    std.log.info("  part:", .{});
+                    for (part) |block_ref| {
+                        std.log.info("    block: {s}", .{block_ref});
+                    }
+                }
+
+                if (parts.len > 1) {
+                    // keep parts[0] as it is
+                    // split parts[1..] into new vehicle(s)
+                    for (parts[1..]) |part_to_remove| {
+                        const new_vehicle_pos_world = vehicle.transformLocalToWorld(vehicle.getBlock(part_to_remove[0]).?.local_position);
+                        const new_vehicle_ref = self.createVehicle(new_vehicle_pos_world);
+                        const new_vehicle = self.getVehicle(new_vehicle_ref).?;
+
+                        const vehicle_transform = b2.b2Body_GetTransform(vehicle.body_id);
+                        b2.b2Body_SetTransform(new_vehicle.body_id, vehicle_transform.p, vehicle_transform.q);
+                        // TODO also copy speed etc
+
+                        for (part_to_remove) |block_ref| {
+                            const block = vehicle.getBlock(block_ref).?.*; // make a copy
+                            const block_pos_world = vehicle.transformLocalToWorld(block.local_position);
+
+                            vehicle.destroyBlock(block_ref);
+
+                            const block_pos_new_local = new_vehicle.transformWorldToLocal(block_pos_world);
+                            _ = new_vehicle.createBlock(block.def, block_pos_new_local);
+                        }
+                    }
+                }
+            }
         }
 
         const physics_time_step: f32 = 1.0 / 60.0;
