@@ -10,6 +10,9 @@ const InputState = @import("input_state.zig");
 const ContentManager = @import("content_manager.zig").ContentManager;
 const SaveManager = @import("save_manager.zig").SaveManager;
 
+const TrackingAllocator = @import("../main.zig").TrackingAllocator;
+const TrackingAllocatorStats = @import("../main.zig").TrackingAllocatorStats;
+
 pub const SceneDescriptor = struct {
     // desc
     name: []const u8,
@@ -45,6 +48,7 @@ pub const UnloadContext = struct {
 
 pub const UpdateContext = struct {
     allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
     dt: f32,
     input_state: *InputState,
     viewport_size: [2]i32,
@@ -53,6 +57,7 @@ pub const UpdateContext = struct {
 
 pub const RenderContext = struct {
     allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
     dt: f32,
     //renderer?
     viewport_size: [2]i32,
@@ -60,6 +65,7 @@ pub const RenderContext = struct {
 
 pub const DrawUiContext = struct {
     allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
     dt: f32,
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
@@ -77,6 +83,7 @@ pub const SceneCommandBuffer = struct {
 pub const SceneManager = struct {
     // deps
     allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
     window: *Window,
     content_manager: *ContentManager,
     save_manager: *SaveManager,
@@ -87,12 +94,14 @@ pub const SceneManager = struct {
 
     pub fn create(
         allocator: std.mem.Allocator,
+        per_frame_allocator: std.mem.Allocator,
         window: *Window,
         content_manager: *ContentManager,
         save_manager: *SaveManager,
     ) !SceneManager {
         return SceneManager{
             .allocator = allocator,
+            .per_frame_allocator = per_frame_allocator,
             .window = window,
             .content_manager = content_manager,
             .save_manager = save_manager,
@@ -186,6 +195,7 @@ pub const SceneManager = struct {
     }
 
     fn frame(self: *SceneManager, dt: f32, command_buffer: *SceneCommandBuffer) void {
+        std.debug.print("== new frame ==\n", .{});
 
         //
         // update
@@ -202,6 +212,7 @@ pub const SceneManager = struct {
         if (self.active_scene) |scene| {
             const update_context = UpdateContext{
                 .allocator = self.allocator,
+                .per_frame_allocator = self.per_frame_allocator,
                 .dt = dt,
                 .input_state = &input_state,
                 .viewport_size = viewport_size,
@@ -220,6 +231,7 @@ pub const SceneManager = struct {
         if (self.active_scene) |scene| {
             const render_context = RenderContext{
                 .allocator = self.allocator,
+                .per_frame_allocator = self.per_frame_allocator,
                 .dt = dt,
                 .viewport_size = viewport_size,
             };
@@ -240,6 +252,7 @@ pub const SceneManager = struct {
         if (self.active_scene) |scene| {
             const draw_ui_context = DrawUiContext{
                 .allocator = self.allocator,
+                .per_frame_allocator = self.per_frame_allocator,
                 .dt = dt,
                 .viewport_size = viewport_size,
                 .scene_commands = command_buffer,
@@ -270,15 +283,33 @@ pub const SceneManager = struct {
                 zgui.text("scene: ---", .{});
             }
 
-            for (self.all_scenes.items) |scene| {
-                const s: [:0]u8 = std.fmt.allocPrintZ(self.allocator, "switch to {s}", .{scene.name}) catch unreachable;
+            var buffer: [128]u8 = undefined;
 
-                defer self.allocator.free(s);
+            for (self.all_scenes.items) |scene| {
+                const s = std.fmt.bufPrintZ(&buffer, "switch to {s}", .{scene.name}) catch unreachable;
 
                 if (zgui.button(s, .{})) {
                     command_buffer.change_scene = true;
                     command_buffer.new_scene_name = scene.name;
                 }
+            }
+
+            zgui.separator();
+
+            {
+                const stats = TrackingAllocator.getStats(self.allocator);
+                zgui.text("long term alloc:", .{});
+                zgui.text("allocations: {d}", .{stats.total_allocations});
+                zgui.text("cur memory used: {d}", .{stats.total_memory_used});
+                zgui.text("max memory used: {d}", .{stats.max_memory_used});
+            }
+
+            {
+                const stats = TrackingAllocator.getStats(self.per_frame_allocator);
+                zgui.text("per frame alloc:", .{});
+                zgui.text("allocations: {d}", .{stats.total_allocations});
+                zgui.text("cur memory used: {d}", .{stats.total_memory_used});
+                zgui.text("max memory used: {d}", .{stats.max_memory_used});
             }
 
             zgui.end();

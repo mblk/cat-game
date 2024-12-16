@@ -128,14 +128,14 @@ pub const World = struct {
         self.ground_segments.clearAndFree();
     }
 
-    pub fn update(self: *World, dt: f32) void {
+    pub fn update(self: *World, dt: f32, temp_allocator: std.mem.Allocator) void {
         //
         _ = dt;
 
         for (self.ground_segments.items) |*ground_segment| {
             // TODO: add dirty flag?
             // XXX could use a temporary per-frame arena allocator here
-            ground_segment.update(self.allocator);
+            ground_segment.update(temp_allocator);
         }
 
         for (self.vehicles.items) |*vehicle| {
@@ -161,7 +161,7 @@ pub const World = struct {
             // split vehicle?
             {
                 //
-                var split_result = vehicle.getSplitParts(self.allocator); // XXX should use temp arena
+                var split_result = vehicle.getSplitParts(temp_allocator); // XXX should use temp arena
                 defer split_result.deinit();
 
                 std.log.info("split:", .{});
@@ -183,7 +183,8 @@ pub const World = struct {
 
                         const vehicle_transform = b2.b2Body_GetTransform(vehicle.body_id);
                         b2.b2Body_SetTransform(new_vehicle.body_id, vehicle_transform.p, vehicle_transform.q);
-                        // TODO also copy speed etc
+                        b2.b2Body_SetLinearVelocity(new_vehicle.body_id, b2.b2Body_GetLinearVelocity(vehicle.body_id));
+                        b2.b2Body_SetAngularVelocity(new_vehicle.body_id, b2.b2Body_GetAngularVelocity(vehicle.body_id));
 
                         for (part_to_remove) |block_ref| {
                             const block = vehicle.getBlock(block_ref).?.*; // make a copy
@@ -197,6 +198,8 @@ pub const World = struct {
                     }
                 }
             }
+
+            // TODO: maybe fix center after vehicle has been changed?
         }
 
         const physics_time_step: f32 = 1.0 / 60.0;

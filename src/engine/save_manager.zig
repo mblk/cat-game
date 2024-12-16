@@ -37,6 +37,8 @@ pub const SaveManager = struct {
         allocator: std.mem.Allocator,
     ) !void {
         const save_file_path = try self.getSaveFilePath(name, allocator);
+        defer allocator.free(save_file_path);
+
         std.log.info("writing save to {s}", .{save_file_path});
 
         var file = try std.fs.createFileAbsolute(save_file_path, .{});
@@ -50,6 +52,8 @@ pub const SaveManager = struct {
         allocator: std.mem.Allocator,
     ) ![]const u8 {
         const save_file_path = try self.getSaveFilePath(name, allocator);
+        defer allocator.free(save_file_path);
+
         std.log.info("reading save from {s}", .{save_file_path});
 
         var file = try std.fs.openFileAbsolute(save_file_path, .{});

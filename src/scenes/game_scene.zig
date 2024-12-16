@@ -132,7 +132,7 @@ const GameScene = struct {
         // update physics
         // TODO figure out optimal order of things
         self.player.update(context.dt, context.input_state, mouse_position, self.master_mode == .ControlPlayer);
-        self.world.update(context.dt);
+        self.world.update(context.dt, context.per_frame_allocator);
 
         switch (self.master_mode) {
             .Idle => {
@@ -241,7 +241,7 @@ const GameScene = struct {
 
             if (zgui.button("export", .{})) {
                 const s = getSliceFromSentinelArray(&self.save_name_buffer);
-                exportWorld(&self.world, context.save_manager, s) catch |e| {
+                exportWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
                     std.log.err("export: {any}", .{e});
                 };
             }
@@ -249,7 +249,7 @@ const GameScene = struct {
                 self.master_mode = .Idle;
 
                 const s = getSliceFromSentinelArray(&self.save_name_buffer);
-                importWorld(&self.world, context.save_manager, s) catch |e| {
+                importWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
                     std.log.err("import: {any}", .{e});
                 };
             }
@@ -330,29 +330,21 @@ const GameScene = struct {
         return s;
     }
 
-    fn exportWorld(world: *World, save_manager: *engine.SaveManager, name: []const u8) !void {
+    fn exportWorld(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
+        const data = try WorldExporter.exportWorld(world, temp_allocator);
+        defer temp_allocator.free(data);
 
-        // XXX provide via arg?
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const allocator = arena.allocator();
-
-        const data = try WorldExporter.exportWorld(world, allocator);
         //std.log.info("data: {s}", .{data});
 
-        try save_manager.save(name, data, allocator);
+        try save_manager.save(name, data, temp_allocator);
     }
 
-    fn importWorld(world: *World, save_manager: *engine.SaveManager, name: []const u8) !void {
+    fn importWorld(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
+        const data = try save_manager.load(name, temp_allocator);
+        defer temp_allocator.free(data);
 
-        // XXX provide via arg?
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const allocator = arena.allocator();
-
-        const data = try save_manager.load(name, allocator);
         //std.log.info("data: {s}", .{data});
 
-        try WorldImporter.importWorld(world, data, allocator);
+        try WorldImporter.importWorld(world, data, temp_allocator);
     }
 };
