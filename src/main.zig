@@ -69,10 +69,8 @@ pub const TrackingAllocator = struct {
         const self: *Self = @ptrCast(@alignCast(ctx));
         // self.mutex.lock();
         // defer self.mutex.unlock();
-        // if (!self.isAllocationAllowed(len)) return null;
-        // return allocInner(self, len, @as(Allocator.Log2Align, @intCast(log2_ptr_align)), ret_addr) catch return null;
 
-        std.debug.print("alloc {d}\n", .{len});
+        //std.debug.print("alloc {d}\n", .{len});
         //std.debug.dumpCurrentStackTrace(@returnAddress());
 
         self.total_allocs += 1;
@@ -86,10 +84,9 @@ pub const TrackingAllocator = struct {
     fn resize(ctx: *anyopaque, buf: []u8, buf_align: u8, new_len: usize, ret_addr: usize) bool {
         const self: *Self = @ptrCast(@alignCast(ctx));
 
-        std.debug.print("resize {d} -> {d}\n", .{ buf.len, new_len });
+        //std.debug.print("resize {d} -> {d}\n", .{ buf.len, new_len });
 
         self.total_resizes += 1;
-
         self.total_memory_used -= buf.len;
         self.total_memory_used += new_len;
 
@@ -99,7 +96,7 @@ pub const TrackingAllocator = struct {
     fn free(ctx: *anyopaque, buf: []u8, buf_align: u8, ret_addr: usize) void {
         const self: *Self = @ptrCast(@alignCast(ctx));
 
-        std.debug.print("free {d}\n", .{buf.len});
+        //std.debug.print("free {d}\n", .{buf.len});
 
         self.total_frees += 1;
         self.total_allocations -= 1;

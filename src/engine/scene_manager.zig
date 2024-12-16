@@ -195,7 +195,7 @@ pub const SceneManager = struct {
     }
 
     fn frame(self: *SceneManager, dt: f32, command_buffer: *SceneCommandBuffer) void {
-        std.debug.print("== new frame ==\n", .{});
+        //std.debug.print("== new frame ==\n", .{});
 
         //
         // update
@@ -277,6 +277,8 @@ pub const SceneManager = struct {
         if (zgui.begin("Debug", .{})) {
             zgui.text("dt {d:.3}", .{dt});
 
+            zgui.separator();
+
             if (self.active_scene) |scene| {
                 zgui.text("scene: {s}", .{scene.descriptor.name});
             } else {
@@ -296,20 +298,22 @@ pub const SceneManager = struct {
 
             zgui.separator();
 
-            {
-                const stats = TrackingAllocator.getStats(self.allocator);
-                zgui.text("long term alloc:", .{});
-                zgui.text("allocations: {d}", .{stats.total_allocations});
-                zgui.text("cur memory used: {d}", .{stats.total_memory_used});
-                zgui.text("max memory used: {d}", .{stats.max_memory_used});
-            }
+            if (zgui.collapsingHeader("memory", .{})) {
+                {
+                    const stats = TrackingAllocator.getStats(self.allocator);
+                    zgui.text("long term alloc:", .{});
+                    zgui.text("allocations: {d}", .{stats.total_allocations});
+                    zgui.text("cur memory used: {d}", .{stats.total_memory_used});
+                    zgui.text("max memory used: {d}", .{stats.max_memory_used});
+                }
 
-            {
-                const stats = TrackingAllocator.getStats(self.per_frame_allocator);
-                zgui.text("per frame alloc:", .{});
-                zgui.text("allocations: {d}", .{stats.total_allocations});
-                zgui.text("cur memory used: {d}", .{stats.total_memory_used});
-                zgui.text("max memory used: {d}", .{stats.max_memory_used});
+                {
+                    const stats = TrackingAllocator.getStats(self.per_frame_allocator);
+                    zgui.text("per frame alloc:", .{});
+                    zgui.text("allocations: {d}", .{stats.total_allocations});
+                    zgui.text("cur memory used: {d}", .{stats.total_memory_used});
+                    zgui.text("max memory used: {d}", .{stats.max_memory_used});
+                }
             }
 
             zgui.end();
