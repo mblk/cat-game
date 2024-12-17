@@ -160,12 +160,180 @@ pub fn Graph(comptime T: type) type {
     };
 }
 
+pub const DeviceType = enum {
+    Wheel,
+    Thruster,
+};
+
+pub const DeviceDef = struct {
+    id: []const u8,
+    data: union(DeviceType) {
+        Wheel: WheelDeviceDef,
+        Thruster: ThrusterDeviceDef,
+    },
+
+    pub fn getAll(allocator: std.mem.Allocator) ![]DeviceDef {
+        var list = std.ArrayList(DeviceDef).init(allocator);
+        defer list.deinit();
+
+        try list.append(DeviceDef{
+            .id = "wheel_1",
+            .data = .{
+                .Wheel = .{
+                    .radius = 1.0,
+                    .has_motor = false,
+                    .max_torque = 0,
+                },
+            },
+        });
+        try list.append(DeviceDef{
+            .id = "wheel_2",
+            .data = .{
+                .Wheel = .{
+                    .radius = 2.0,
+                    .has_motor = true,
+                    .max_torque = 10.0,
+                },
+            },
+        });
+
+        try list.append(DeviceDef{
+            .id = "thruster_1",
+            .data = .{
+                .Thruster = .{
+                    .max_thrust = 100.0,
+                },
+            },
+        });
+
+        return list.toOwnedSlice();
+    }
+};
+
+pub const DeviceRef = struct {
+    device_index: usize,
+    // version
+};
+
+pub const Device = struct {
+    alive: bool,
+    type: DeviceType,
+    local_position: vec2,
+    data_index: usize, // index into wheel/thruster/etc-arrays
+    block_index: usize, // index into block-array
+};
+
+pub const WheelDeviceDef = struct {
+    radius: f32,
+    has_motor: bool,
+    max_torque: f32,
+};
+
+pub const WheelDevice = struct {
+    alive: bool,
+    def: WheelDeviceDef,
+
+    body_id: b2.b2BodyId,
+    joint_id: b2.b2JointId,
+
+    fn create(def: WheelDeviceDef, world_id: b2.b2WorldId, parent_body_id: b2.b2BodyId, position_world: vec2) WheelDevice {
+        std.log.info("wheel create", .{});
+
+        // create wheel body
+        var body_def = b2.b2DefaultBodyDef();
+        body_def.type = b2.b2_dynamicBody;
+        body_def.position.x = 0;
+        body_def.position.y = 0;
+        const body_id = b2.b2CreateBody(world_id, &body_def);
+
+        const circle = b2.b2Circle{
+            .center = position_world.to_b2(),
+            .radius = 2.0,
+        };
+
+        const shape = b2.b2DefaultShapeDef();
+
+        _ = b2.b2CreateCircleShape(body_id, &shape, &circle);
+
+        // create wheel joint
+        var wheel_joint_def = b2.b2DefaultWheelJointDef();
+        wheel_joint_def.collideConnected = false;
+        wheel_joint_def.bodyIdA = parent_body_id;
+        wheel_joint_def.bodyIdB = body_id;
+        wheel_joint_def.localAxisA = vec2.init(0, 1).to_b2();
+        wheel_joint_def.localAnchorA = b2.b2Body_GetLocalPoint(wheel_joint_def.bodyIdA, position_world.to_b2());
+        wheel_joint_def.localAnchorB = b2.b2Body_GetLocalPoint(wheel_joint_def.bodyIdB, position_world.to_b2());
+
+        std.log.info("local anchor a {any}", .{wheel_joint_def.localAnchorA});
+        std.log.info("local anchor b {any}", .{wheel_joint_def.localAnchorB});
+
+        wheel_joint_def.enableLimit = true;
+        wheel_joint_def.upperTranslation = -2;
+        wheel_joint_def.lowerTranslation = -3;
+
+        wheel_joint_def.hertz = 1.0;
+        wheel_joint_def.dampingRatio = 0.7;
+
+        const joint_id = b2.b2CreateWheelJoint(world_id, &wheel_joint_def);
+
+        //2Vec2 pivot = { 0.0f, 10.0f };
+        // b2Vec2 axis = b2Normalize( { 1.0f, 1.0f } );
+        // b2WheelJointDef jointDef = b2DefaultWheelJointDef();
+        // jointDef.bodyIdA = groundId;
+        // jointDef.bodyIdB = bodyId;
+        // jointDef.localAxisA = b2Body_GetLocalVector( jointDef.bodyIdA, axis );
+        // jointDef.localAnchorA = b2Body_GetLocalPoint( jointDef.bodyIdA, pivot );
+        // jointDef.localAnchorB = b2Body_GetLocalPoint( jointDef.bodyIdB, pivot );
+        // jointDef.motorSpeed = m_motorSpeed;
+        // jointDef.maxMotorTorque = m_motorTorque;
+        // jointDef.enableMotor = m_enableMotor;
+        // jointDef.lowerTranslation = -3.0f;
+        // jointDef.upperTranslation = 3.0f;
+        // jointDef.enableLimit = m_enableLimit;
+        // jointDef.hertz = m_hertz;
+        // jointDef.dampingRatio = m_dampingRatio;
+
+        // m_jointId = b2CreateWheelJoint( m_worldId, &jointDef );
+
+        return WheelDevice{
+            .alive = true,
+            .def = def,
+
+            .body_id = body_id,
+            .joint_id = joint_id,
+        };
+    }
+};
+
+pub const ThrusterDeviceDef = struct {
+    max_thrust: f32,
+};
+
+pub const ThrusterDevice = struct {
+    alive: bool,
+    def: ThrusterDeviceDef,
+
+    fn create(def: ThrusterDeviceDef) ThrusterDevice {
+        std.log.info("thruster create", .{});
+
+        return ThrusterDevice{
+            .alive = true,
+            .def = def,
+        };
+    }
+};
+
 pub const Vehicle = struct {
     //
     alive: bool,
     //
+    world_id: b2.b2WorldId,
     body_id: b2.b2BodyId,
     blocks: std.ArrayList(Block),
+
+    devices: std.ArrayList(Device),
+    wheels: std.ArrayList(WheelDevice),
+    thrusters: std.ArrayList(ThrusterDevice),
 
     block_connection_graph: Graph(BlockConnectionEdge),
 
@@ -180,9 +348,13 @@ pub const Vehicle = struct {
 
         const vehicle = Vehicle{
             .alive = true,
+            .world_id = world_id,
             .body_id = body_id,
-            .blocks = std.ArrayList(Block).init(allocator),
-            .block_connection_graph = Graph(BlockConnectionEdge).init(allocator),
+            .blocks = .init(allocator),
+            .devices = .init(allocator),
+            .wheels = .init(allocator),
+            .thrusters = .init(allocator),
+            .block_connection_graph = .init(allocator),
             .edit_flag = false,
         };
 
@@ -195,12 +367,17 @@ pub const Vehicle = struct {
     pub fn destroy(self: *Vehicle) void {
         std.debug.assert(self.alive);
 
+        // TODO destroy devices etc
+
         for (self.blocks.items) |*block| {
             if (!block.alive) continue;
             block.destroy();
         }
 
         self.block_connection_graph.deinit();
+        self.thrusters.deinit();
+        self.wheels.deinit();
+        self.devices.deinit();
         self.blocks.deinit();
 
         b2.b2DestroyBody(self.body_id);
@@ -526,5 +703,49 @@ pub const Vehicle = struct {
                 .parts = parts_slice,
             };
         }
+    }
+
+    //
+    // devices
+    //
+
+    pub fn createDevice(self: *Vehicle, def: DeviceDef, local_position: vec2) DeviceRef {
+        var data_index: usize = 0;
+
+        const world_position = self.transformLocalToWorld(local_position);
+
+        switch (def.data) {
+            .Wheel => |wheel_def| {
+                //
+                const wheel_index = self.wheels.items.len;
+                const wheel = WheelDevice.create(wheel_def, self.world_id, self.body_id, world_position);
+                self.wheels.append(wheel) catch unreachable;
+
+                data_index = wheel_index;
+            },
+
+            .Thruster => |thruster_def| {
+                //
+                const thruster_index = self.thrusters.items.len;
+                const thruster = ThrusterDevice.create(thruster_def);
+                self.thrusters.append(thruster) catch unreachable;
+
+                data_index = thruster_index;
+            },
+        }
+
+        const device_index = self.devices.items.len;
+
+        self.devices.append(Device{
+            .alive = true,
+            .type = def.data,
+            .local_position = local_position,
+            .block_index = 0,
+            .data_index = data_index,
+        }) catch unreachable;
+
+        return DeviceRef{
+            .device_index = device_index,
+        };
     }
 };

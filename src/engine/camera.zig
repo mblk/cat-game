@@ -112,6 +112,30 @@ pub const Camera = struct {
         // return [2]f32{ foo[0], foo[1] };
     }
 
+    pub fn worldToScreen(self: *const Camera, world_position: vec2) vec2 {
+        // Konvertiere die Weltposition in 4D-Koordinaten (x, y, z = -1.0 für 2D, w = 1.0)
+        const world_coords = zmath.f32x4(world_position.x, world_position.y, -1.0, 1.0);
+
+        // Transformiere die Weltkoordinaten in View-Koordinaten
+        const view_coords = zmath.mul(world_coords, self.view);
+
+        // Transformiere die View-Koordinaten in Clip-Koordinaten
+        const clip_coords = zmath.mul(view_coords, self.projection);
+
+        // NDC-Koordinaten durch Division der Clip-Koordinaten durch w
+        const ndc_x = clip_coords[0] / clip_coords[3];
+        const ndc_y = clip_coords[1] / clip_coords[3];
+
+        // Bildschirmkoordinaten berechnen
+        const vp_x: f32 = @as(f32, @floatFromInt(self.viewport_size[0]));
+        const vp_y: f32 = @as(f32, @floatFromInt(self.viewport_size[1]));
+
+        const screen_x = (ndc_x + 1.0) * 0.5 * vp_x;
+        const screen_y = (1.0 - ndc_y) * 0.5 * vp_y;
+
+        return vec2.init(screen_x, screen_y);
+    }
+
     pub fn myInverseDet(m: zmath.Mat, out_det: ?*zmath.F32x4) zmath.Mat {
         const mt = zmath.transpose(m);
         var v0: [4]zmath.F32x4 = undefined;

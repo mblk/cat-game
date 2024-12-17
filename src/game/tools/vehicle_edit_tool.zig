@@ -18,6 +18,8 @@ const BlockDef = @import("../vehicle.zig").BlockDef;
 const BlockRef = @import("../vehicle.zig").BlockRef;
 const BlockConnectionEdge = @import("../vehicle.zig").BlockConnectionEdge;
 
+const DeviceDef = @import("../vehicle.zig").DeviceDef;
+
 const tools = @import("tools.zig");
 const ToolVTable = tools.ToolVTable;
 const ToolDeps = tools.ToolDeps;
@@ -28,6 +30,7 @@ const ToolDrawUiContext = tools.ToolDrawUiContext;
 const Mode = union(enum) {
     Idle,
     CreateBlock: BlockDef,
+    CreateDevice: DeviceDef,
     EditBlock: VehicleAndBlockRef,
     EditVehicle: struct {
         vehicle_ref: VehicleRef,
@@ -44,6 +47,7 @@ pub const VehicleEditTool = struct {
     renderer2D: *engine.Renderer2D,
 
     block_defs: []BlockDef,
+    device_defs: []DeviceDef,
 
     mode: Mode = .Idle,
 
@@ -66,6 +70,7 @@ pub const VehicleEditTool = struct {
             .world = deps.world,
             .renderer2D = deps.renderer2D,
             .block_defs = try BlockDef.getAll(allocator),
+            .device_defs = try DeviceDef.getAll(allocator),
         };
 
         return self;
@@ -74,6 +79,7 @@ pub const VehicleEditTool = struct {
     fn destroy(self_ptr: *anyopaque) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
+        self.allocator.free(self.device_defs);
         self.allocator.free(self.block_defs);
 
         self.allocator.destroy(self);
@@ -187,6 +193,20 @@ pub const VehicleEditTool = struct {
 
                         const new_block_ref = vehicle.createBlock(block_def, vec2.init(0, 0));
                         _ = new_block_ref;
+                    }
+                }
+            },
+            .CreateDevice => |device_def| {
+                //
+                if (self.world.getClosestVehicle(mouse_position, max_build_distance)) |result| {
+                    const vehicle = self.world.getVehicle(result.vehicle_and_block_ref.vehicle).?;
+
+                    const device_local_position = vehicle.transformWorldToLocal(mouse_position);
+
+                    self.renderer2D.addPoint(mouse_position, 1.0, Color.red);
+
+                    if (input.consumeMouseButtonDownEvent(.left)) {
+                        _ = vehicle.createDevice(device_def, device_local_position);
                     }
                 }
             },
@@ -411,9 +431,18 @@ pub const VehicleEditTool = struct {
                         self.mode = .{ .CreateBlock = block_def };
                     }
                 }
+                for (self.device_defs) |device_def| {
+                    const s = std.fmt.bufPrintZ(&buffer, "device: {s}", .{device_def.id}) catch unreachable;
+                    if (zgui.button(s, .{})) {
+                        self.mode = .{ .CreateDevice = device_def };
+                    }
+                }
             },
             .CreateBlock => |block_def| {
                 zgui.text("create block {s}", .{block_def.id});
+            },
+            .CreateDevice => |device_def| {
+                zgui.text("create device {s}", .{device_def.id});
             },
             .EditBlock => |vehicle_and_block_ref| {
                 zgui.text("edit block {s}", .{vehicle_and_block_ref});

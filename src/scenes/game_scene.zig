@@ -223,6 +223,10 @@ const GameScene = struct {
     fn drawUi(self_ptr: *anyopaque, context: *const engine.DrawUiContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
+        // xxx
+        self.renderer.render_to_zgui(&self.camera);
+        // xxx
+
         zgui.setNextWindowPos(.{ .x = 10.0, .y = 400.0, .cond = .appearing });
         //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 

@@ -4,6 +4,8 @@ const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 const zm = @import("zmath");
 
+const zgui = @import("zgui");
+
 const ContentManager = @import("content_manager.zig").ContentManager;
 const Shader = @import("shader.zig").Shader;
 const Camera = @import("camera.zig").Camera;
@@ -21,6 +23,13 @@ const PointVertexData = struct {
 const VertexData = struct {
     position: vec2,
     color: Color,
+};
+
+const TextData = struct {
+    position: vec2,
+    color: Color,
+    buffer: [128]u8,
+    len: usize,
 };
 
 pub const Renderer2D = struct {
@@ -44,6 +53,7 @@ pub const Renderer2D = struct {
     point_data: std.ArrayList(PointVertexData),
     line_data: std.ArrayList(VertexData),
     triangle_data: std.ArrayList(VertexData),
+    text_data: std.ArrayList(TextData),
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -157,15 +167,17 @@ pub const Renderer2D = struct {
             .triangle_vao = triangle_vao,
             .triangle_vbo = triangle_vbo,
 
-            .point_data = std.ArrayList(PointVertexData).init(allocator),
-            .line_data = std.ArrayList(VertexData).init(allocator),
-            .triangle_data = std.ArrayList(VertexData).init(allocator),
+            .point_data = .init(allocator),
+            .line_data = .init(allocator),
+            .triangle_data = .init(allocator),
+            .text_data = .init(allocator),
         };
 
         return renderer;
     }
 
     pub fn free(self: *Self) void {
+        self.text_data.deinit();
         self.point_data.deinit();
         self.line_data.deinit();
         self.triangle_data.deinit();
@@ -215,6 +227,42 @@ pub const Renderer2D = struct {
         }) catch unreachable;
     }
 
+    // pub fn addArrow(self: *Self, from: vec2, to: vec2, color: Color) void {
+
+    // }
+
+    pub fn addCircle(self: *Self, center: vec2, radius: f32, color: Color) void {
+        const segments: usize = 32;
+        const segment_angle: f32 = 2.0 * std.math.pi / @as(f32, @floatFromInt(segments));
+
+        var prev_point = center.add(vec2.init(radius, 0));
+        for (1..segments + 1) |i| {
+            const angle = segment_angle * @as(f32, @floatFromInt(i));
+            const point = center.add(vec2{
+                .x = std.math.cos(angle) * radius,
+                .y = std.math.sin(angle) * radius,
+            });
+            self.addLine(prev_point, point, color);
+            prev_point = point;
+        }
+    }
+
+    pub fn addSolidCircle(self: *Self, center: vec2, radius: f32, color: Color) void {
+        const segments: usize = 32;
+        const segment_angle: f32 = 2.0 * std.math.pi / @as(f32, @floatFromInt(segments));
+
+        var prev_point = center.add(vec2.init(radius, 0));
+        for (1..segments + 1) |i| {
+            const angle = segment_angle * @as(f32, @floatFromInt(i));
+            const point = center.add(vec2{
+                .x = std.math.cos(angle) * radius,
+                .y = std.math.sin(angle) * radius,
+            });
+            self.addTriangle(center, prev_point, point, color);
+            prev_point = point;
+        }
+    }
+
     pub fn addTriangle(self: *Self, p1: vec2, p2: vec2, p3: vec2, color: Color) void {
         self.triangle_data.append(VertexData{
             .position = p1,
@@ -228,6 +276,22 @@ pub const Renderer2D = struct {
             .position = p3,
             .color = color,
         }) catch unreachable;
+    }
+
+    pub fn addText(self: *Self, position: vec2, color: Color, comptime fmt: []const u8, args: anytype) void {
+        self.text_data.append(TextData{
+            .position = position,
+            .color = color,
+            .buffer = undefined,
+            .len = 0,
+        }) catch unreachable;
+
+        var data: *TextData = &self.text_data.items[self.text_data.items.len - 1];
+
+        // copy to buffer
+        const s = std.fmt.bufPrintZ(&data.buffer, fmt, args) catch unreachable;
+
+        data.len = s.len;
     }
 
     pub fn render(self: *Self, camera: *Camera) void {
@@ -328,6 +392,50 @@ pub const Renderer2D = struct {
 
             // clear buffer
             self.point_data.clearRetainingCapacity();
+        }
+    }
+
+    pub fn render_to_zgui(self: *Self, camera: *Camera) void {
+        if (self.text_data.items.len > 0) {
+            zgui.setNextWindowPos(.{
+                .x = 0,
+                .y = 0,
+                .cond = .always,
+            });
+
+            _ = zgui.begin("foo", .{ .flags = .{
+                .no_title_bar = true,
+                .no_nav_inputs = true,
+                .no_mouse_inputs = true,
+                .always_auto_resize = true,
+                .no_scrollbar = true,
+                .no_background = true,
+                .no_bring_to_front_on_focus = true,
+                .no_collapse = true,
+                .no_docking = true,
+                .no_focus_on_appearing = true,
+                .no_move = true,
+                .no_nav_focus = true,
+                .no_resize = true,
+                .no_saved_settings = true,
+                .no_scroll_with_mouse = true,
+            } });
+
+            for (self.text_data.items) |*text_data| {
+                const screen_pos = camera.worldToScreen(text_data.position);
+
+                zgui.setCursorPosX(screen_pos.x);
+                zgui.setCursorPosY(screen_pos.y);
+
+                const c = [4]f32{ 1, 1, 1, 1 };
+                const s: []u8 = text_data.buffer[0..text_data.len];
+
+                zgui.textUnformattedColored(c, s);
+            }
+
+            zgui.end();
+
+            self.text_data.clearRetainingCapacity();
         }
     }
 };

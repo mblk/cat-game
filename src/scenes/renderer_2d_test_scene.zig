@@ -85,6 +85,9 @@ const Renderer2DTestScene = struct {
         self.renderer.addLine(p3, p4, c3);
         self.renderer.addLine(p4, p1, c4);
 
+        self.renderer.addCircle(vec2.init(0, -10), 1.0, Color.red);
+        self.renderer.addCircle(vec2.init(5, -10), 2.0, Color.green);
+
         // cw
         self.renderer.addTriangle(
             vec2.init(-30.0, 0.0),
@@ -101,13 +104,17 @@ const Renderer2DTestScene = struct {
             Color.red,
         );
 
+        self.renderer.addText(vec2.init(0, 0), Color.red, "Hello !", .{});
+        self.renderer.addText(vec2.init(0, -10), Color.green, "World !", .{});
+
         self.renderer.render(&self.camera);
     }
 
     fn drawUi(self_ptr: *anyopaque, context: *const engine.DrawUiContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        _ = self;
         _ = context;
+
+        self.renderer.render_to_zgui(&self.camera);
     }
 };
