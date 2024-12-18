@@ -5,6 +5,7 @@ const vec2 = engine.vec2;
 const Color = engine.Color;
 
 const World = @import("../world.zig").World;
+const VehicleDefs = @import("../vehicle.zig").VehicleDefs;
 
 pub const Tool = struct {
     vtable: ToolVTable,
@@ -27,6 +28,7 @@ pub const ToolVTable = struct {
 pub const ToolDeps = struct {
     //allocator: std.mem.Allocator,
     world: *World,
+    vehicle_defs: *VehicleDefs,
     renderer2D: *engine.Renderer2D,
 };
 

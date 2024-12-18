@@ -69,8 +69,8 @@ pub const VehicleEditTool = struct {
             .allocator = allocator,
             .world = deps.world,
             .renderer2D = deps.renderer2D,
-            .block_defs = try BlockDef.getAll(allocator),
-            .device_defs = try DeviceDef.getAll(allocator),
+            .block_defs = deps.vehicle_defs.blocks,
+            .device_defs = deps.vehicle_defs.devices,
         };
 
         return self;
@@ -78,9 +78,6 @@ pub const VehicleEditTool = struct {
 
     fn destroy(self_ptr: *anyopaque) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
-
-        self.allocator.free(self.device_defs);
-        self.allocator.free(self.block_defs);
 
         self.allocator.destroy(self);
     }
@@ -200,10 +197,9 @@ pub const VehicleEditTool = struct {
                 //
                 if (self.world.getClosestVehicle(mouse_position, max_build_distance)) |result| {
                     const vehicle = self.world.getVehicle(result.vehicle_and_block_ref.vehicle).?;
-
                     const device_local_position = vehicle.transformWorldToLocal(mouse_position);
 
-                    self.renderer2D.addPoint(mouse_position, 1.0, Color.red);
+                    self.renderDevicePreview(device_def, vehicle, device_local_position, Color.white);
 
                     if (input.consumeMouseButtonDownEvent(.left)) {
                         _ = vehicle.createDevice(device_def, device_local_position);
@@ -413,6 +409,24 @@ pub const VehicleEditTool = struct {
         self.renderer2D.addLine(p2_world, p3_world, color);
         self.renderer2D.addLine(p3_world, p4_world, color);
         self.renderer2D.addLine(p4_world, p1_world, color);
+    }
+
+    fn renderDevicePreview(self: *Self, def: DeviceDef, vehicle: *Vehicle, local_position: vec2, color: Color) void {
+        switch (def.data) {
+            .Wheel => |wheel_def| {
+                //
+                const center_world_position = vehicle.transformLocalToWorld(local_position);
+
+                self.renderer2D.addPointWithPixelSize(center_world_position, 3.0, color);
+                self.renderer2D.addCircle(center_world_position, wheel_def.radius, color);
+
+                // TODO suspension
+            },
+            .Thruster => |thruster_def| {
+                //
+                _ = thruster_def;
+            },
+        }
     }
 
     fn drawUi(self_ptr: *anyopaque, context: ToolDrawUiContext) void {

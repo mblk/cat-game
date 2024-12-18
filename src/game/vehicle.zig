@@ -10,6 +10,45 @@ const b2 = zbox.API;
 // body -> Vehicle
 // shape -> Block ?
 
+pub const VehicleDefs = struct {
+    allocator: std.mem.Allocator,
+    blocks: []BlockDef,
+    devices: []DeviceDef,
+
+    pub fn load(allocator: std.mem.Allocator) !VehicleDefs {
+        return VehicleDefs{
+            .allocator = allocator,
+            .blocks = try BlockDef.getAll(allocator),
+            .devices = try DeviceDef.getAll(allocator),
+        };
+    }
+
+    pub fn free(self: *VehicleDefs) void {
+        self.allocator.free(self.blocks);
+        self.allocator.free(self.devices);
+    }
+
+    pub fn getBlockDef(self: *const VehicleDefs, id: []const u8) ?BlockDef {
+        for (self.blocks) |block_def| {
+            if (std.mem.eql(u8, id, block_def.id)) {
+                return block_def;
+            }
+        }
+
+        return null;
+    }
+
+    pub fn getDeviceDef(self: *const VehicleDefs, id: []const u8) ?DeviceDef {
+        for (self.devices) |device_def| {
+            if (std.mem.eql(u8, id, device_def.id)) {
+                return device_def;
+            }
+        }
+
+        return null;
+    }
+};
+
 pub const BlockDef = struct {
     id: []const u8,
     size: vec2,
@@ -183,6 +222,7 @@ pub const DeviceDef = struct {
                     .radius = 1.0,
                     .has_motor = false,
                     .max_torque = 0,
+                    .max_suspension = 0,
                 },
             },
         });
@@ -193,6 +233,7 @@ pub const DeviceDef = struct {
                     .radius = 2.0,
                     .has_motor = true,
                     .max_torque = 10.0,
+                    .max_suspension = 1.0,
                 },
             },
         });
@@ -213,10 +254,23 @@ pub const DeviceDef = struct {
 pub const DeviceRef = struct {
     device_index: usize,
     // version
+
+    pub fn format(self: DeviceRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("Block(DeviceRef={d})", .{self.device_index});
+    }
+};
+
+pub const DeviceTransferData = struct {
+    def: DeviceDef,
+    local_position: vec2,
 };
 
 pub const Device = struct {
     alive: bool,
+    def: DeviceDef,
     type: DeviceType,
     local_position: vec2,
     data_index: usize, // index into wheel/thruster/etc-arrays
@@ -227,9 +281,12 @@ pub const WheelDeviceDef = struct {
     radius: f32,
     has_motor: bool,
     max_torque: f32,
+    max_suspension: f32,
 };
 
 pub const WheelDevice = struct {
+    const Self = @This();
+
     alive: bool,
     def: WheelDeviceDef,
 
@@ -248,10 +305,12 @@ pub const WheelDevice = struct {
 
         const circle = b2.b2Circle{
             .center = position_world.to_b2(),
-            .radius = 2.0,
+            .radius = def.radius,
         };
 
-        const shape = b2.b2DefaultShapeDef();
+        var shape = b2.b2DefaultShapeDef();
+        shape.density = 0.1;
+        shape.friction = 0.9;
 
         _ = b2.b2CreateCircleShape(body_id, &shape, &circle);
 
@@ -268,32 +327,15 @@ pub const WheelDevice = struct {
         std.log.info("local anchor b {any}", .{wheel_joint_def.localAnchorB});
 
         wheel_joint_def.enableLimit = true;
-        wheel_joint_def.upperTranslation = -2;
-        wheel_joint_def.lowerTranslation = -3;
+        wheel_joint_def.upperTranslation = def.max_suspension / 2;
+        wheel_joint_def.lowerTranslation = -def.max_suspension / 2;
+        // wheel_joint_def.upperTranslation = -2;
+        // wheel_joint_def.lowerTranslation = -3;
 
         wheel_joint_def.hertz = 1.0;
         wheel_joint_def.dampingRatio = 0.7;
 
         const joint_id = b2.b2CreateWheelJoint(world_id, &wheel_joint_def);
-
-        //2Vec2 pivot = { 0.0f, 10.0f };
-        // b2Vec2 axis = b2Normalize( { 1.0f, 1.0f } );
-        // b2WheelJointDef jointDef = b2DefaultWheelJointDef();
-        // jointDef.bodyIdA = groundId;
-        // jointDef.bodyIdB = bodyId;
-        // jointDef.localAxisA = b2Body_GetLocalVector( jointDef.bodyIdA, axis );
-        // jointDef.localAnchorA = b2Body_GetLocalPoint( jointDef.bodyIdA, pivot );
-        // jointDef.localAnchorB = b2Body_GetLocalPoint( jointDef.bodyIdB, pivot );
-        // jointDef.motorSpeed = m_motorSpeed;
-        // jointDef.maxMotorTorque = m_motorTorque;
-        // jointDef.enableMotor = m_enableMotor;
-        // jointDef.lowerTranslation = -3.0f;
-        // jointDef.upperTranslation = 3.0f;
-        // jointDef.enableLimit = m_enableLimit;
-        // jointDef.hertz = m_hertz;
-        // jointDef.dampingRatio = m_dampingRatio;
-
-        // m_jointId = b2CreateWheelJoint( m_worldId, &jointDef );
 
         return WheelDevice{
             .alive = true,
@@ -303,6 +345,20 @@ pub const WheelDevice = struct {
             .joint_id = joint_id,
         };
     }
+
+    fn destroy(self: *Self) void {
+        std.log.info("wheel destroy", .{});
+
+        std.debug.assert(self.alive);
+
+        self.alive = false;
+
+        b2.b2DestroyJoint(self.joint_id);
+        b2.b2DestroyBody(self.body_id);
+
+        self.joint_id = b2.b2_nullJointId;
+        self.body_id = b2.b2_nullBodyId;
+    }
 };
 
 pub const ThrusterDeviceDef = struct {
@@ -310,6 +366,8 @@ pub const ThrusterDeviceDef = struct {
 };
 
 pub const ThrusterDevice = struct {
+    const Self = @This();
+
     alive: bool,
     def: ThrusterDeviceDef,
 
@@ -320,6 +378,11 @@ pub const ThrusterDevice = struct {
             .alive = true,
             .def = def,
         };
+    }
+
+    fn destroy(self: *Self) void {
+        std.debug.assert(self.alive);
+        self.alive = false;
     }
 };
 
@@ -355,7 +418,7 @@ pub const Vehicle = struct {
             .wheels = .init(allocator),
             .thrusters = .init(allocator),
             .block_connection_graph = .init(allocator),
-            .edit_flag = false,
+            .edit_flag = false, // TODO maybe start with true so world.update can do stuff
         };
 
         //vehicle.createBlock(vec2.init(0, 0));
@@ -367,11 +430,20 @@ pub const Vehicle = struct {
     pub fn destroy(self: *Vehicle) void {
         std.debug.assert(self.alive);
 
-        // TODO destroy devices etc
+        for (self.devices.items, 0..) |*device, device_index| {
+            if (!device.alive) continue;
 
-        for (self.blocks.items) |*block| {
+            self.destroyDevice(.{
+                .device_index = device_index,
+            });
+        }
+
+        for (self.blocks.items, 0..) |*block, block_index| {
             if (!block.alive) continue;
-            block.destroy();
+
+            self.destroyBlock(.{
+                .block_index = block_index,
+            });
         }
 
         self.block_connection_graph.deinit();
@@ -424,6 +496,32 @@ pub const Vehicle = struct {
         return null;
     }
 
+    pub fn getBlockAtPosition(self: *Vehicle, local_position: vec2) ?BlockRef {
+        std.debug.assert(self.alive);
+
+        var closest_dist: f32 = std.math.floatMax(f32);
+        var closest_block_ref: ?BlockRef = null;
+
+        //const vehicle_transform = b2.b2Body_GetTransform(self.body_id);
+
+        for (self.blocks.items, 0..) |*block, block_index| {
+            if (!block.alive) continue;
+
+            //  TODO continue if block does not contain position
+
+            const dist = vec2.dist(block.local_position, local_position);
+
+            if (dist < closest_dist) {
+                closest_dist = dist;
+                closest_block_ref = BlockRef{
+                    .block_index = block_index,
+                };
+            }
+        }
+
+        return closest_block_ref;
+    }
+
     pub fn createBlock(self: *Vehicle, def: BlockDef, local_position: vec2) BlockRef {
         std.debug.assert(self.alive);
 
@@ -445,31 +543,19 @@ pub const Vehicle = struct {
         return ref;
     }
 
-    // pub fn _getClosestBlock(self: *Vehicle, world_position: vec2) ?*Block {
-    //     std.debug.assert(self.alive);
-
-    //     var closest_dist: f32 = std.math.floatMax(f32);
-    //     var closest_block: ?*Block = null;
-
-    //     const vehicle_transform = b2.b2Body_GetTransform(self.body_id);
-
-    //     for (self.blocks.items) |*block| {
-    //         if (!block.alive) continue;
-
-    //         const block_position = vec2.from_b2(b2.b2TransformPoint(vehicle_transform, block.local_position.to_b2()));
-    //         const dist = vec2.dist(world_position, block_position);
-
-    //         if (dist < closest_dist) {
-    //             closest_dist = dist;
-    //             closest_block = block;
-    //         }
-    //     }
-
-    //     return closest_block;
-    // }
-
     pub fn destroyBlock(self: *Vehicle, block_ref: BlockRef) void {
         std.debug.assert(self.alive);
+
+        // destroy devices
+        {
+            for (self.devices.items, 0..) |*device, device_index| {
+                if (device.block_index == block_ref.block_index) {
+                    self.destroyDevice(.{
+                        .device_index = device_index,
+                    });
+                }
+            }
+        }
 
         // destroy block
         {
@@ -616,6 +702,9 @@ pub const Vehicle = struct {
     };
 
     pub fn getSplitParts(self: *Vehicle, temp_allocator: std.mem.Allocator) SplitPartsResult {
+
+        // TODO make a generic graph-type with graph.findPartitions ?
+
         // state
         var remaining = std.AutoHashMap(BlockRef, void).init(temp_allocator);
         defer remaining.deinit();
@@ -709,8 +798,72 @@ pub const Vehicle = struct {
     // devices
     //
 
-    pub fn createDevice(self: *Vehicle, def: DeviceDef, local_position: vec2) DeviceRef {
+    pub fn getDevice(self: *Vehicle, ref: DeviceRef) ?*Device {
+        std.debug.assert(self.alive);
+
+        const device: *Device = &self.devices.items[ref.device_index];
+
+        if (device.alive) {
+            return device;
+        }
+
+        return null;
+    }
+
+    pub fn getClosestDevice(self: *Vehicle, world_position: vec2) ?DeviceRef {
+        std.debug.assert(self.alive);
+        //
+
+        _ = world_position;
+
+        return null;
+    }
+
+    pub fn getAllDevicesOnBlock(self: *Vehicle, block_ref: BlockRef, allocator: std.mem.Allocator) []DeviceRef {
+        std.debug.assert(self.alive);
+
+        var result = std.ArrayList(DeviceRef).init(allocator);
+        defer result.deinit();
+
+        for (self.devices.items, 0..) |*device, device_index| {
+            if (!device.alive) continue;
+
+            if (device.block_index == block_ref.block_index) {
+                result.append(.{
+                    .device_index = device_index,
+                }) catch unreachable;
+            }
+        }
+
+        return result.toOwnedSlice() catch unreachable;
+    }
+
+    pub fn getDeviceTransferData(self: *Vehicle, device_ref: DeviceRef) ?DeviceTransferData {
+        std.debug.assert(self.alive);
+
+        if (self.getDevice(device_ref)) |device| {
+            std.debug.assert(device.alive);
+
+            return DeviceTransferData{
+                .def = device.def,
+                .local_position = device.local_position,
+            };
+        }
+
+        return null;
+    }
+
+    pub fn createDevice(self: *Vehicle, def: DeviceDef, local_position: vec2) ?DeviceRef {
+        std.debug.assert(self.alive);
+
         var data_index: usize = 0;
+
+        const maybe_block_ref = self.getBlockAtPosition(local_position);
+        if (maybe_block_ref == null) {
+            std.log.err("createDevice: no block at that position", .{});
+            return null;
+        }
+        const block_ref = maybe_block_ref.?;
 
         const world_position = self.transformLocalToWorld(local_position);
 
@@ -738,14 +891,40 @@ pub const Vehicle = struct {
 
         self.devices.append(Device{
             .alive = true,
+            .def = def,
             .type = def.data,
             .local_position = local_position,
-            .block_index = 0,
+            .block_index = block_ref.block_index,
             .data_index = data_index,
         }) catch unreachable;
 
         return DeviceRef{
             .device_index = device_index,
         };
+    }
+
+    pub fn destroyDevice(self: *Vehicle, ref: DeviceRef) void {
+        std.debug.assert(self.alive);
+
+        const maybe_device = self.getDevice(ref);
+        if (maybe_device == null) {
+            return;
+        }
+        const device = maybe_device.?;
+
+        device.alive = false;
+
+        switch (device.type) {
+            .Wheel => {
+                //
+                const wheel: *WheelDevice = &self.wheels.items[device.data_index];
+                wheel.destroy();
+            },
+            .Thruster => {
+                //
+                const thruster: *ThrusterDevice = &self.thrusters.items[device.data_index];
+                thruster.destroy();
+            },
+        }
     }
 };

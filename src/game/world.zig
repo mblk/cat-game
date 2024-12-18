@@ -21,6 +21,7 @@ const Vehicle = @import("vehicle.zig").Vehicle;
 const Block = @import("vehicle.zig").Block;
 const BlockDef = @import("vehicle.zig").BlockDef;
 const BlockRef = @import("vehicle.zig").BlockRef;
+const DeviceTransferData = @import("vehicle.zig").DeviceTransferData;
 
 pub const VehicleRef = struct {
     vehicle_index: usize,
@@ -177,7 +178,10 @@ pub const World = struct {
                     // keep parts[0] as it is
                     // split parts[1..] into new vehicle(s)
                     for (parts[1..]) |part_to_remove| {
-                        const new_vehicle_pos_world = vehicle.transformLocalToWorld(vehicle.getBlock(part_to_remove[0]).?.local_position);
+
+                        // Note: using the same body-position for the new vehicle to make it easier to transfer stuff. Must be fixed afterwards.
+
+                        const new_vehicle_pos_world = vec2.from_b2(b2.b2Body_GetPosition(vehicle.body_id));
                         const new_vehicle_ref = self.createVehicle(new_vehicle_pos_world);
                         const new_vehicle = self.getVehicle(new_vehicle_ref).?;
 
@@ -188,12 +192,29 @@ pub const World = struct {
 
                         for (part_to_remove) |block_ref| {
                             const block = vehicle.getBlock(block_ref).?.*; // make a copy
-                            const block_pos_world = vehicle.transformLocalToWorld(block.local_position);
 
+                            // get affected device data
+                            const device_refs = vehicle.getAllDevicesOnBlock(block_ref, temp_allocator);
+                            defer temp_allocator.free(device_refs);
+                            var transfer_datas = std.ArrayList(DeviceTransferData).init(temp_allocator);
+                            defer transfer_datas.deinit();
+
+                            std.log.info("devices to transfer: {s}", .{device_refs});
+
+                            for (device_refs) |device_ref| {
+                                if (vehicle.getDeviceTransferData(device_ref)) |transfer_data| {
+                                    transfer_datas.append(transfer_data) catch unreachable;
+                                }
+                            }
+
+                            // destroy and recreate block
                             vehicle.destroyBlock(block_ref);
+                            _ = new_vehicle.createBlock(block.def, block.local_position);
 
-                            const block_pos_new_local = new_vehicle.transformWorldToLocal(block_pos_world);
-                            _ = new_vehicle.createBlock(block.def, block_pos_new_local);
+                            // recreate devices
+                            for (transfer_datas.items) |transfer_data| {
+                                _ = new_vehicle.createDevice(transfer_data.def, transfer_data.local_position);
+                            }
                         }
                     }
                 }

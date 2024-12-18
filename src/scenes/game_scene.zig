@@ -9,6 +9,9 @@ const zbox = @import("zbox");
 const b2 = zbox.API;
 
 const game = @import("../game/game.zig");
+
+const VehicleDefs = game.VehicleDefs;
+
 const World = game.World;
 const Vehicle = game.Vehicle;
 const Player = game.Player;
@@ -16,6 +19,10 @@ const Player = game.Player;
 const world_export = @import("../game/world_export.zig");
 const WorldExporter = world_export.WorldExporter;
 const WorldImporter = world_export.WorldImporter;
+
+const vehicle_export = @import("../game/vehicle_export.zig");
+const VehicleExporter = vehicle_export.VehicleExporter;
+const VehicleImporter = vehicle_export.VehicleImporter;
 
 const tools = @import("../game/tools/tools.zig");
 const ToolManager = tools.ToolManager;
@@ -42,6 +49,9 @@ const GameScene = struct {
         CreateBox,
     };
 
+    // defs
+    vehicle_defs: VehicleDefs,
+
     // state
     world: World,
     player: Player,
@@ -60,12 +70,15 @@ const GameScene = struct {
 
     moving_camera: bool = false,
 
-    save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
+    world_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
+    vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
 
     // tools
     tool_manager: ToolManager,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
+        const vehicle_defs = try VehicleDefs.load(context.allocator);
+
         var world = World.create(context.allocator);
         errdefer world.free();
         //try world.load();
@@ -84,6 +97,7 @@ const GameScene = struct {
 
         const self = try context.allocator.create(Self);
         self.* = Self{
+            .vehicle_defs = vehicle_defs,
             .world = world, // Note: This makes a copy
             .player = player,
             .camera = camera,
@@ -92,10 +106,12 @@ const GameScene = struct {
             .tool_manager = undefined, // XXX needs world address
         };
 
-        @memcpy(self.save_name_buffer[0..4], "test");
+        @memcpy(self.world_save_name_buffer[0..7], "world_1");
+        @memcpy(self.vehicle_save_name_buffer[0..9], "vehicle_1");
 
         var tool_manager = ToolManager.create(context.allocator, .{
             //.allocator = context.allocator,
+            .vehicle_defs = &self.vehicle_defs,
             .world = &self.world,
             .renderer2D = self.renderer,
         });
@@ -113,6 +129,7 @@ const GameScene = struct {
         self.tool_manager.destroy();
         self.renderer.free();
         self.world.free();
+        self.vehicle_defs.free();
 
         context.allocator.destroy(self);
     }
@@ -239,22 +256,35 @@ const GameScene = struct {
                 self.world.clear();
             }
 
-            _ = zgui.inputText("save name", .{
-                .buf = &self.save_name_buffer,
+            _ = zgui.inputText("world save name", .{
+                .buf = &self.world_save_name_buffer,
             });
 
-            if (zgui.button("export", .{})) {
-                const s = getSliceFromSentinelArray(&self.save_name_buffer);
+            if (zgui.button("export world", .{})) {
+                const s = getSliceFromSentinelArray(&self.world_save_name_buffer);
                 exportWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
-                    std.log.err("export: {any}", .{e});
+                    std.log.err("export world: {any}", .{e});
                 };
             }
-            if (zgui.button("import", .{})) {
+            if (zgui.button("import world", .{})) {
                 self.master_mode = .Idle;
 
-                const s = getSliceFromSentinelArray(&self.save_name_buffer);
+                const s = getSliceFromSentinelArray(&self.world_save_name_buffer);
                 importWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
-                    std.log.err("import: {any}", .{e});
+                    std.log.err("import world: {any}", .{e});
+                };
+            }
+
+            _ = zgui.inputText("vehicle save name", .{
+                .buf = &self.vehicle_save_name_buffer,
+            });
+
+            if (zgui.button("import vehicle", .{})) {
+                self.master_mode = .Idle;
+
+                const s = getSliceFromSentinelArray(&self.vehicle_save_name_buffer);
+                importVehicle(&self.world, context.save_manager, context.per_frame_allocator, &self.vehicle_defs, s) catch |e| {
+                    std.log.err("import vehicle: {any}", .{e});
                 };
             }
 
@@ -306,18 +336,30 @@ const GameScene = struct {
                 self.zbox_renderer.drawUi();
             }
 
+            //
             // vehicles
+            //
 
             if (zgui.collapsingHeader("vehicles", .{})) {
-                for (self.world.vehicles.items) |vehicle| {
+                for (self.world.vehicles.items) |*vehicle| {
+                    zgui.pushPtrId(vehicle);
                     zgui.text("vehicle alive={} blocks={d}", .{ vehicle.alive, vehicle.blocks.items.len });
 
                     // arraylist only valid if alive
                     if (vehicle.alive) {
+                        if (zgui.button("export", .{})) {
+                            const s = getSliceFromSentinelArray(&self.vehicle_save_name_buffer);
+                            exportVehicle(vehicle, context.save_manager, context.per_frame_allocator, s) catch |e| {
+                                std.log.err("export vehicle: {any}", .{e});
+                            };
+                        }
+
                         for (vehicle.blocks.items) |block| {
                             zgui.text("  block alive={} def={s} pos={d} {d}", .{ block.alive, block.def.id, block.local_position.x, block.local_position.y });
                         }
                     }
+
+                    zgui.popId();
                 }
             }
 
@@ -338,17 +380,35 @@ const GameScene = struct {
         const data = try WorldExporter.exportWorld(world, temp_allocator);
         defer temp_allocator.free(data);
 
-        //std.log.info("data: {s}", .{data});
+        //std.log.info("world data: {s}", .{data});
 
-        try save_manager.save(name, data, temp_allocator);
+        try save_manager.save(.WorldExport, name, data, temp_allocator);
     }
 
     fn importWorld(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
-        const data = try save_manager.load(name, temp_allocator);
+        const data = try save_manager.load(.WorldExport, name, temp_allocator);
         defer temp_allocator.free(data);
 
-        //std.log.info("data: {s}", .{data});
+        //std.log.info("world data: {s}", .{data});
 
         try WorldImporter.importWorld(world, data, temp_allocator);
+    }
+
+    fn exportVehicle(vehicle: *Vehicle, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
+        const data = try VehicleExporter.exportVehicle(vehicle, temp_allocator);
+        defer temp_allocator.free(data);
+
+        std.log.info("vehicle data: {s}", .{data});
+
+        try save_manager.save(.VehicleExport, name, data, temp_allocator);
+    }
+
+    fn importVehicle(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, vehicle_defs: *const VehicleDefs, name: []const u8) !void {
+        const data = try save_manager.load(.VehicleExport, name, temp_allocator);
+        defer temp_allocator.free(data);
+
+        std.log.info("vehicle data: {s}", .{data});
+
+        try VehicleImporter.importVehicle(world, data, temp_allocator, vehicle_defs);
     }
 };
