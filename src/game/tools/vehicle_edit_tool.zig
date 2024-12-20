@@ -11,14 +11,15 @@ const b2 = zbox.API;
 const World = @import("../world.zig").World;
 const VehicleRef = @import("../world.zig").VehicleRef;
 const VehicleAndBlockRef = @import("../world.zig").VehicleAndBlockRef;
+const VehicleAndDeviceRef = @import("../world.zig").VehicleAndDeviceRef;
 
 const Vehicle = @import("../vehicle.zig").Vehicle;
 const Block = @import("../vehicle.zig").Block;
 const BlockDef = @import("../vehicle.zig").BlockDef;
 const BlockRef = @import("../vehicle.zig").BlockRef;
 const BlockConnectionEdge = @import("../vehicle.zig").BlockConnectionEdge;
-
 const DeviceDef = @import("../vehicle.zig").DeviceDef;
+const DeviceRef = @import("../vehicle.zig").DeviceRef;
 
 const tools = @import("tools.zig");
 const ToolVTable = tools.ToolVTable;
@@ -32,6 +33,7 @@ const Mode = union(enum) {
     CreateBlock: BlockDef,
     CreateDevice: DeviceDef,
     EditBlock: VehicleAndBlockRef,
+    EditDevice: VehicleAndDeviceRef,
     EditVehicle: struct {
         vehicle_ref: VehicleRef,
         moving: bool,
@@ -134,15 +136,24 @@ pub const VehicleEditTool = struct {
 
         switch (self.mode) {
             .Idle => {
-                //
-                if (self.world.getClosestVehicle(mouse_position, max_select_distance)) |result| {
+                if (self.world.getClosestVehicleAndBlockOrDevice(mouse_position, max_select_distance)) |result| {
+                    switch (result) {
+                        .VehicleAndBlock => |vehicle_and_block| {
+                            self.renderer2D.addLine(mouse_position, vehicle_and_block.block_world, Color.red);
 
-                    //
-                    self.renderer2D.addLine(mouse_position, result.block_world, Color.red);
+                            // select block?
+                            if (input.consumeMouseButtonDownEvent(.left)) {
+                                self.mode = .{ .EditBlock = vehicle_and_block.ref };
+                            }
+                        },
+                        .VehicleAndDevice => |vehicle_and_device| {
+                            self.renderer2D.addLine(mouse_position, vehicle_and_device.device_world, Color.red);
 
-                    // select block?
-                    if (input.consumeMouseButtonDownEvent(.left)) {
-                        self.mode = .{ .EditBlock = result.vehicle_and_block_ref };
+                            // select device?
+                            if (input.consumeMouseButtonDownEvent(.left)) {
+                                self.mode = .{ .EditDevice = vehicle_and_device.ref };
+                            }
+                        },
                     }
                 }
             },
@@ -194,9 +205,8 @@ pub const VehicleEditTool = struct {
                 }
             },
             .CreateDevice => |device_def| {
-                //
-                if (self.world.getClosestVehicle(mouse_position, max_build_distance)) |result| {
-                    const vehicle = self.world.getVehicle(result.vehicle_and_block_ref.vehicle).?;
+                if (self.world.getClosestVehicleAndBlock(mouse_position, max_build_distance)) |result| {
+                    const vehicle = self.world.getVehicle(result.ref.vehicle).?;
                     const device_local_position = vehicle.transformWorldToLocal(mouse_position);
 
                     self.renderDevicePreview(device_def, vehicle, device_local_position, Color.white);
@@ -207,8 +217,6 @@ pub const VehicleEditTool = struct {
                 }
             },
             .EditBlock => |vehicle_and_block_ref| {
-                //
-
                 if (self.world.getVehicleAndBlock(vehicle_and_block_ref)) |result| {
                     const vehicle = result.vehicle;
 
@@ -218,21 +226,26 @@ pub const VehicleEditTool = struct {
                     }
                 }
 
-                if (self.world.getClosestVehicle(mouse_position, max_select_distance)) |result| {
+                // change selection?
+                if (self.world.getClosestVehicleAndBlock(mouse_position, max_select_distance)) |result| {
                     self.renderer2D.addLine(mouse_position, result.block_world, Color.red);
 
                     if (input.consumeMouseButtonDownEvent(.left)) {
-                        if (std.meta.eql(result.vehicle_and_block_ref.block, vehicle_and_block_ref.block)) {
+                        if (std.meta.eql(result.ref.block, vehicle_and_block_ref.block)) {
                             self.mode = .{ .EditVehicle = .{
-                                .vehicle_ref = result.vehicle_and_block_ref.vehicle,
+                                .vehicle_ref = result.ref.vehicle,
                                 .moving = false,
                             } };
                         } else {
-                            self.mode = .{ .EditBlock = result.vehicle_and_block_ref };
+                            self.mode = .{ .EditBlock = result.ref };
                         }
                     }
                 }
             },
+            .EditDevice => |vehicle_and_device_ref| {
+                _ = vehicle_and_device_ref;
+            },
+
             .EditVehicle => |edit_vehicle_data| {
                 const vehicle_ref = edit_vehicle_data.vehicle_ref;
                 const moving = edit_vehicle_data.moving;
@@ -432,7 +445,7 @@ pub const VehicleEditTool = struct {
     fn drawUi(self_ptr: *anyopaque, context: ToolDrawUiContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        _ = context;
+        //_ = context;
 
         switch (self.mode) {
             .Idle => {
@@ -461,6 +474,56 @@ pub const VehicleEditTool = struct {
             .EditBlock => |vehicle_and_block_ref| {
                 zgui.text("edit block {s}", .{vehicle_and_block_ref});
             },
+            .EditDevice => |vehicle_and_device_ref| {
+                zgui.text("edit device {s}", .{vehicle_and_device_ref});
+
+                if (self.world.getVehicle(vehicle_and_device_ref.vehicle)) |vehicle| {
+                    if (vehicle.getDevice(vehicle_and_device_ref.device)) |device| {
+                        std.debug.assert(device.alive);
+
+                        switch (device.type) {
+                            .Wheel => {
+                                //
+                                const wheel = &vehicle.wheels.items[device.data_index];
+
+                                zgui.text("wheel control left key: {any}", .{wheel.control_left_key});
+                                zgui.text("wheel control right key: {any}", .{wheel.control_right_key});
+
+                                _ = zgui.button("hover to assign left", .{});
+
+                                if (zgui.isItemHovered(.{})) {
+                                    if (context.input.consumeSingleKeyDownEvent()) |key| {
+                                        wheel.control_left_key = key;
+                                    }
+                                }
+
+                                zgui.sameLine(.{});
+                                _ = zgui.button("hover to assign right", .{});
+
+                                if (zgui.isItemHovered(.{})) {
+                                    if (context.input.consumeSingleKeyDownEvent()) |key| {
+                                        wheel.control_right_key = key;
+                                    }
+                                }
+                            },
+                            .Thruster => {
+                                //
+                                const thruster = &vehicle.thrusters.items[device.data_index];
+
+                                zgui.text("thruster control key: {any}", .{thruster.control_key});
+
+                                _ = zgui.button("hover to assign", .{});
+
+                                if (zgui.isItemHovered(.{})) {
+                                    if (context.input.consumeSingleKeyDownEvent()) |key| {
+                                        thruster.control_key = key;
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+            },
             .EditVehicle => |edit_vehicle_data| {
                 const vehicle_ref = edit_vehicle_data.vehicle_ref;
 
@@ -471,7 +534,7 @@ pub const VehicleEditTool = struct {
 
                     zgui.text("mass: {d:.2} kg", .{mass_data.mass});
                     zgui.text("MoI: {d:.2} kg*m^2", .{mass_data.rotationalInertia});
-                    zgui.text("com: {d:.2} {d:.2}", .{ mass_data.center.x, mass_data.center.y });
+                    zgui.text("CoM: {d:.2} {d:.2}", .{ mass_data.center.x, mass_data.center.y });
                 }
             },
         }

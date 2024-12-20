@@ -67,6 +67,7 @@ pub const DrawUiContext = struct {
     allocator: std.mem.Allocator,
     per_frame_allocator: std.mem.Allocator,
     dt: f32,
+    input_state: *InputState, // XXX
     viewport_size: [2]i32,
     scene_commands: *SceneCommandBuffer,
 
@@ -254,6 +255,7 @@ pub const SceneManager = struct {
                 .allocator = self.allocator,
                 .per_frame_allocator = self.per_frame_allocator,
                 .dt = dt,
+                .input_state = &input_state,
                 .viewport_size = viewport_size,
                 .scene_commands = command_buffer,
                 .save_manager = self.save_manager,

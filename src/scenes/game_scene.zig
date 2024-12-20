@@ -149,7 +149,7 @@ const GameScene = struct {
         // update physics
         // TODO figure out optimal order of things
         self.player.update(context.dt, context.input_state, mouse_position, self.master_mode == .ControlPlayer);
-        self.world.update(context.dt, context.per_frame_allocator);
+        self.world.update(context.dt, context.per_frame_allocator, context.input_state, self.renderer);
 
         switch (self.master_mode) {
             .Idle => {
@@ -312,7 +312,9 @@ const GameScene = struct {
                 }
             }
 
-            self.tool_manager.drawUi(.{});
+            self.tool_manager.drawUi(.{
+                .input = context.input_state,
+            });
 
             //
             // master mode
@@ -349,6 +351,7 @@ const GameScene = struct {
                     if (vehicle.alive) {
                         if (zgui.button("export", .{})) {
                             const s = getSliceFromSentinelArray(&self.vehicle_save_name_buffer);
+
                             exportVehicle(vehicle, context.save_manager, context.per_frame_allocator, s) catch |e| {
                                 std.log.err("export vehicle: {any}", .{e});
                             };

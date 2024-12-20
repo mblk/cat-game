@@ -21,6 +21,7 @@ const Vehicle = @import("vehicle.zig").Vehicle;
 const Block = @import("vehicle.zig").Block;
 const BlockDef = @import("vehicle.zig").BlockDef;
 const BlockRef = @import("vehicle.zig").BlockRef;
+const DeviceRef = @import("vehicle.zig").DeviceRef;
 const DeviceTransferData = @import("vehicle.zig").DeviceTransferData;
 
 pub const VehicleRef = struct {
@@ -47,6 +48,18 @@ pub const VehicleAndBlockRef = struct {
     }
 };
 
+pub const VehicleAndDeviceRef = struct {
+    vehicle: VehicleRef,
+    device: DeviceRef,
+
+    pub fn format(self: VehicleAndDeviceRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("{s}+{s}", .{ self.vehicle, self.device });
+    }
+};
+
 pub const World = struct {
     allocator: std.mem.Allocator,
     size: vec2,
@@ -55,10 +68,8 @@ pub const World = struct {
     vehicles: std.ArrayList(Vehicle),
 
     pub fn create(allocator: std.mem.Allocator) World {
-        const world_width = 200.0;
-        const world_height = 100.0;
-        const half_world_width = world_width * 0.5;
-        const half_world_height = world_height * 0.5;
+        const world_size = vec2.init(200, 100);
+        const half_world_size = world_size.scale(0.5);
 
         // b2 world
         const world_def = b2.b2DefaultWorldDef();
@@ -84,10 +95,10 @@ pub const World = struct {
             const body_id = b2.b2CreateBody(world_id, &body_def);
 
             var points = [4]b2.b2Vec2{
-                b2.b2Vec2{ .x = -half_world_width, .y = -half_world_height }, // bottom left
-                b2.b2Vec2{ .x = -half_world_width, .y = half_world_height }, // top left
-                b2.b2Vec2{ .x = half_world_width, .y = half_world_height }, // top right
-                b2.b2Vec2{ .x = half_world_width, .y = -half_world_height }, // bottom right
+                b2.b2Vec2{ .x = -half_world_size.x, .y = -half_world_size.y }, // bottom left
+                b2.b2Vec2{ .x = -half_world_size.x, .y = half_world_size.y }, // top left
+                b2.b2Vec2{ .x = half_world_size.x, .y = half_world_size.y }, // top right
+                b2.b2Vec2{ .x = half_world_size.x, .y = -half_world_size.y }, // bottom right
             };
 
             var chain_def = b2.b2DefaultChainDef();
@@ -101,18 +112,15 @@ pub const World = struct {
         //
         return World{
             .allocator = allocator,
-            .size = vec2.init(100, 100),
-            .ground_segments = std.ArrayList(GroundSegment).init(allocator),
-            .vehicles = std.ArrayList(Vehicle).init(allocator),
-
+            .size = world_size,
             .world_id = world_id,
+            .ground_segments = .init(allocator),
+            .vehicles = .init(allocator),
         };
     }
 
     pub fn free(self: *World) void {
         self.clear();
-
-        self.ground_segments.deinit();
 
         for (self.vehicles.items) |*vehicle| {
             if (!vehicle.alive) continue;
@@ -120,6 +128,7 @@ pub const World = struct {
         }
 
         self.vehicles.deinit();
+        self.ground_segments.deinit();
     }
 
     pub fn clear(self: *World) void {
@@ -129,13 +138,12 @@ pub const World = struct {
         self.ground_segments.clearAndFree();
     }
 
-    pub fn update(self: *World, dt: f32, temp_allocator: std.mem.Allocator) void {
+    pub fn update(self: *World, dt: f32, temp_allocator: std.mem.Allocator, input: *engine.InputState, renderer: *engine.Renderer2D) void {
         //
         _ = dt;
 
         for (self.ground_segments.items) |*ground_segment| {
             // TODO: add dirty flag?
-            // XXX could use a temporary per-frame arena allocator here
             ground_segment.update(temp_allocator);
         }
 
@@ -162,7 +170,7 @@ pub const World = struct {
             // split vehicle?
             {
                 //
-                var split_result = vehicle.getSplitParts(temp_allocator); // XXX should use temp arena
+                var split_result = vehicle.getSplitParts(temp_allocator);
                 defer split_result.deinit();
 
                 std.log.info("split:", .{});
@@ -185,6 +193,7 @@ pub const World = struct {
                         const new_vehicle_ref = self.createVehicle(new_vehicle_pos_world);
                         const new_vehicle = self.getVehicle(new_vehicle_ref).?;
 
+                        // copy physics state
                         const vehicle_transform = b2.b2Body_GetTransform(vehicle.body_id);
                         b2.b2Body_SetTransform(new_vehicle.body_id, vehicle_transform.p, vehicle_transform.q);
                         b2.b2Body_SetLinearVelocity(new_vehicle.body_id, b2.b2Body_GetLinearVelocity(vehicle.body_id));
@@ -220,9 +229,19 @@ pub const World = struct {
                 }
             }
 
-            // TODO: maybe fix center after vehicle has been changed?
+            // TODO: fix center after vehicle has been changed
         }
 
+        // TODO whats the best order ?
+
+        // Update vehicles
+        for (self.vehicles.items) |*vehicle| {
+            if (!vehicle.alive) continue;
+
+            vehicle.update(input, renderer);
+        }
+
+        // Step the world
         const physics_time_step: f32 = 1.0 / 60.0;
         const physics_sub_step_count: i32 = 4;
 
@@ -322,7 +341,7 @@ pub const World = struct {
     }
 
     //
-    // entities
+    // testing stuff
     //
 
     pub fn createDynamicBox(self: *World, position: vec2) void {
@@ -341,10 +360,6 @@ pub const World = struct {
         shape_def.friction = 0.3;
         //shape_def.restitution = 0.5;
         _ = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
-
-        //var entity = self.createEntity();
-        //entity.body_id = body_id;
-        //self.entities.append(entity) catch unreachable;
     }
 
     //
@@ -390,16 +405,14 @@ pub const World = struct {
         return null;
     }
 
-    pub const ClosestVehicleResult = struct {
-        vehicle_and_block_ref: VehicleAndBlockRef,
-        block_def: BlockDef,
-        block_local: vec2,
+    pub const ClosestVehicleAndBlockResult = struct {
+        ref: VehicleAndBlockRef,
         block_world: vec2,
     };
 
-    pub fn getClosestVehicle(self: *World, position_world: vec2, max_distance: f32) ?ClosestVehicleResult {
+    pub fn getClosestVehicleAndBlock(self: *World, position_world: vec2, max_distance: f32) ?ClosestVehicleAndBlockResult {
         var closest_dist: f32 = std.math.floatMax(f32);
-        var closest_vehicle: ?ClosestVehicleResult = null;
+        var closest_vehicle_ref: ?ClosestVehicleAndBlockResult = null;
 
         for (self.vehicles.items, 0..) |*vehicle, vehicle_index| {
             if (!vehicle.alive) continue;
@@ -412,8 +425,8 @@ pub const World = struct {
 
                 if (dist < max_distance and dist < closest_dist) {
                     closest_dist = dist;
-                    closest_vehicle = ClosestVehicleResult{
-                        .vehicle_and_block_ref = VehicleAndBlockRef{
+                    closest_vehicle_ref = ClosestVehicleAndBlockResult{
+                        .ref = VehicleAndBlockRef{
                             .vehicle = VehicleRef{
                                 .vehicle_index = vehicle_index,
                             },
@@ -421,9 +434,81 @@ pub const World = struct {
                                 .block_index = block_index,
                             },
                         },
-                        .block_def = block.def,
-                        .block_local = block.local_position,
                         .block_world = block_position_world,
+                    };
+                }
+            }
+        }
+
+        return closest_vehicle_ref;
+    }
+
+    pub const ClosestVehicleAndBlockOrDeviceResult = union(enum) {
+        VehicleAndBlock: struct {
+            ref: VehicleAndBlockRef,
+            //block_def: BlockDef,
+            //block_local: vec2,
+            block_world: vec2,
+        },
+        VehicleAndDevice: struct {
+            ref: VehicleAndDeviceRef,
+            device_world: vec2,
+        },
+    };
+
+    pub fn getClosestVehicleAndBlockOrDevice(self: *World, position_world: vec2, max_distance: f32) ?ClosestVehicleAndBlockOrDeviceResult {
+        var closest_dist: f32 = std.math.floatMax(f32);
+        var closest_vehicle: ?ClosestVehicleAndBlockOrDeviceResult = null;
+
+        for (self.vehicles.items, 0..) |*vehicle, vehicle_index| {
+            if (!vehicle.alive) continue;
+
+            for (vehicle.blocks.items, 0..) |*block, block_index| {
+                if (!block.alive) continue;
+
+                const block_position_world = vehicle.transformLocalToWorld(block.local_position);
+                const dist = vec2.dist(block_position_world, position_world);
+
+                if (dist < max_distance and dist < closest_dist) {
+                    closest_dist = dist;
+                    closest_vehicle = ClosestVehicleAndBlockOrDeviceResult{
+                        .VehicleAndBlock = .{
+                            .ref = VehicleAndBlockRef{
+                                .vehicle = VehicleRef{
+                                    .vehicle_index = vehicle_index,
+                                },
+                                .block = BlockRef{
+                                    .block_index = block_index,
+                                },
+                            },
+                            //.block_def = block.def,
+                            //.block_local = block.local_position,
+                            .block_world = block_position_world,
+                        },
+                    };
+                }
+            }
+
+            for (vehicle.devices.items, 0..) |*device, device_index| {
+                if (!device.alive) continue;
+
+                const device_position_world = vehicle.transformLocalToWorld(device.local_position);
+                const dist = vec2.dist(device_position_world, position_world);
+
+                if (dist < max_distance and dist < closest_dist) {
+                    closest_dist = dist;
+                    closest_vehicle = ClosestVehicleAndBlockOrDeviceResult{
+                        .VehicleAndDevice = .{
+                            .ref = VehicleAndDeviceRef{
+                                .vehicle = VehicleRef{
+                                    .vehicle_index = vehicle_index,
+                                },
+                                .device = DeviceRef{
+                                    .device_index = device_index,
+                                },
+                            },
+                            .device_world = device_position_world,
+                        },
                     };
                 }
             }

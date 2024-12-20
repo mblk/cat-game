@@ -2,8 +2,8 @@ const std = @import("std");
 const glfw = @import("zglfw");
 
 const InputState = @This();
-const Key = glfw.Key;
-const MouseButton = glfw.MouseButton;
+pub const Key = glfw.Key;
+pub const MouseButton = glfw.MouseButton;
 
 // keyboard
 key_states: [512]bool = [_]bool{false} ** 512,
@@ -41,7 +41,7 @@ pub fn removeKeyboardInput(self: *InputState) void {
     self.key_states = [_]bool{false} ** 512;
 }
 
-pub fn detectEvents(self: *InputState) void {
+pub fn detectEvents(self: *InputState) void { // TODO hardcoded values
     {
         var i: usize = 0;
         while (i < 512) : (i += 1) {
@@ -118,6 +118,26 @@ pub fn consumeKeyUpEvent(self: *InputState, key: Key) bool {
     return false;
 }
 
+pub fn consumeSingleKeyDownEvent(self: *InputState) ?Key {
+    var num_key_down_events: usize = 0;
+    var key_index: usize = 0;
+
+    for (0..512) |i| {
+        if (self.key_down_events[i]) {
+            num_key_down_events += 1;
+            key_index = i;
+        }
+    }
+
+    if (num_key_down_events != 1) {
+        return null;
+    }
+
+    self.key_down_events[key_index] = false;
+
+    return getKeyFromIndex(key_index);
+}
+
 pub fn getMouseButtonState(self: *InputState, button: MouseButton) bool {
     if (getIndexFromMouseButton(button)) |index| {
         return self.mouse_button_states[index];
@@ -160,6 +180,14 @@ pub fn getIndexFromKey(key: glfw.Key) ?usize {
 
     const idx: usize = @intCast(index);
     return idx;
+}
+
+pub fn getKeyFromIndex(index: usize) ?Key {
+    if (index >= 512)
+        return null;
+
+    const value: Key = @enumFromInt(index);
+    return value;
 }
 
 pub fn getIndexFromMouseButton(button: glfw.MouseButton) ?usize {

@@ -242,6 +242,17 @@ pub const DeviceDef = struct {
             .id = "thruster_1",
             .data = .{
                 .Thruster = .{
+                    .size = vec2.init(0.25, 0.5),
+                    .max_thrust = 10.0,
+                },
+            },
+        });
+
+        try list.append(DeviceDef{
+            .id = "thruster_2",
+            .data = .{
+                .Thruster = .{
+                    .size = vec2.init(0.5, 1.0),
                     .max_thrust = 100.0,
                 },
             },
@@ -259,7 +270,7 @@ pub const DeviceRef = struct {
         _ = fmt;
         _ = options;
 
-        try writer.print("Block(DeviceRef={d})", .{self.device_index});
+        try writer.print("Device(idx={d})", .{self.device_index});
     }
 };
 
@@ -290,8 +301,12 @@ pub const WheelDevice = struct {
     alive: bool,
     def: WheelDeviceDef,
 
+    parent_body_id: b2.b2BodyId,
     body_id: b2.b2BodyId,
     joint_id: b2.b2JointId,
+
+    control_left_key: engine.InputState.Key = .four,
+    control_right_key: engine.InputState.Key = .five,
 
     fn create(def: WheelDeviceDef, world_id: b2.b2WorldId, parent_body_id: b2.b2BodyId, position_world: vec2) WheelDevice {
         std.log.info("wheel create", .{});
@@ -329,8 +344,6 @@ pub const WheelDevice = struct {
         wheel_joint_def.enableLimit = true;
         wheel_joint_def.upperTranslation = def.max_suspension / 2;
         wheel_joint_def.lowerTranslation = -def.max_suspension / 2;
-        // wheel_joint_def.upperTranslation = -2;
-        // wheel_joint_def.lowerTranslation = -3;
 
         wheel_joint_def.hertz = 1.0;
         wheel_joint_def.dampingRatio = 0.7;
@@ -341,6 +354,7 @@ pub const WheelDevice = struct {
             .alive = true,
             .def = def,
 
+            .parent_body_id = parent_body_id,
             .body_id = body_id,
             .joint_id = joint_id,
         };
@@ -359,9 +373,32 @@ pub const WheelDevice = struct {
         self.joint_id = b2.b2_nullJointId;
         self.body_id = b2.b2_nullBodyId;
     }
+
+    fn update(self: *Self, input: *engine.InputState) void {
+        var target: f32 = 0;
+
+        if (input.getKeyState(self.control_left_key)) {
+            target += 1;
+        }
+        if (input.getKeyState(self.control_right_key)) {
+            target -= 1;
+        }
+
+        if (@abs(target) > 0.1) {
+            b2.b2Body_SetAwake(self.parent_body_id, true);
+            b2.b2Body_SetAwake(self.body_id, true);
+
+            b2.b2WheelJoint_SetMotorSpeed(self.joint_id, target * 10); // rad/s ?
+            b2.b2WheelJoint_SetMaxMotorTorque(self.joint_id, 100.0); // Nm ?
+            b2.b2WheelJoint_EnableMotor(self.joint_id, true);
+        } else {
+            b2.b2WheelJoint_EnableMotor(self.joint_id, false);
+        }
+    }
 };
 
 pub const ThrusterDeviceDef = struct {
+    size: vec2,
     max_thrust: f32,
 };
 
@@ -371,18 +408,68 @@ pub const ThrusterDevice = struct {
     alive: bool,
     def: ThrusterDeviceDef,
 
-    fn create(def: ThrusterDeviceDef) ThrusterDevice {
+    position_local: vec2,
+
+    parent_body_id: b2.b2BodyId,
+    shape_id: b2.b2ShapeId,
+
+    control_key: engine.InputState.Key = .one,
+
+    fn create(def: ThrusterDeviceDef, parent_body_id: b2.b2BodyId, position_local: vec2) ThrusterDevice {
         std.log.info("thruster create", .{});
+
+        const hw = def.size.x * 0.5;
+        const hh = def.size.y * 0.5;
+        const box = b2.b2MakeOffsetBox(hw, hh, position_local.to_b2(), b2.b2Rot_identity);
+
+        var shape_def = b2.b2DefaultShapeDef();
+        shape_def.density = 1.0;
+        shape_def.friction = 0.3;
+
+        const shape_id = b2.b2CreatePolygonShape(parent_body_id, &shape_def, &box);
 
         return ThrusterDevice{
             .alive = true,
             .def = def,
+
+            .position_local = position_local,
+
+            .parent_body_id = parent_body_id,
+            .shape_id = shape_id,
         };
     }
 
     fn destroy(self: *Self) void {
+        std.log.info("thruster destroy", .{});
+
         std.debug.assert(self.alive);
+
+        b2.b2DestroyShape(self.shape_id, true);
+        self.shape_id = b2.b2_nullShapeId;
+
         self.alive = false;
+    }
+
+    fn update(self: *Self, input: *engine.InputState, renderer: *engine.Renderer2D) void {
+        //_ = self;
+        //_ = input;
+        //_ = renderer;
+
+        if (input.getKeyState(self.control_key)) {
+            const transform = b2.b2Body_GetTransform(self.parent_body_id);
+
+            // apply force here
+            const position_world = vec2.from_b2(b2.b2TransformPoint(transform, self.position_local.to_b2()));
+
+            // in this direction
+            const force_dir_local = vec2.init(0, 1);
+            const force_dir_world = vec2.from_b2(b2.b2RotateVector(transform.q, force_dir_local.to_b2()));
+            const force = force_dir_world.scale(self.def.max_thrust);
+
+            b2.b2Body_ApplyForce(self.parent_body_id, force.to_b2(), position_world.to_b2(), true);
+
+            renderer.addLine(position_world, position_world.add(force_dir_world.neg()), engine.Color.red);
+        }
     }
 };
 
@@ -455,6 +542,26 @@ pub const Vehicle = struct {
         b2.b2DestroyBody(self.body_id);
 
         self.alive = false;
+    }
+
+    pub fn update(self: *Vehicle, input: *engine.InputState, renderer: *engine.Renderer2D) void {
+        for (self.devices.items) |*device| {
+            if (!device.alive) continue;
+
+            //
+        }
+
+        for (self.wheels.items) |*wheel| {
+            if (!wheel.alive) continue;
+
+            wheel.update(input);
+        }
+
+        for (self.thrusters.items) |*thruster| {
+            if (!thruster.alive) continue;
+
+            thruster.update(input, renderer);
+        }
     }
 
     pub fn transformWorldToLocal(self: *Vehicle, world_position: vec2) vec2 {
@@ -810,13 +917,28 @@ pub const Vehicle = struct {
         return null;
     }
 
-    pub fn getClosestDevice(self: *Vehicle, world_position: vec2) ?DeviceRef {
+    pub fn getClosestDevice(self: *Vehicle, position_world: vec2, max_distance: f32) ?DeviceRef {
         std.debug.assert(self.alive);
-        //
 
-        _ = world_position;
+        var closest_dist: f32 = std.math.floatMax(f32);
+        var closest_device_ref: ?DeviceRef = null;
 
-        return null;
+        const position_local = self.transformWorldToLocal(position_world);
+
+        for (self.devices.items, 0..) |*device, device_index| {
+            if (!device.alive) continue;
+
+            const dist = vec2.dist(device.local_position, position_local);
+
+            if (dist < max_distance and dist < closest_dist) {
+                closest_dist = dist;
+                closest_device_ref = DeviceRef{
+                    .device_index = device_index,
+                };
+            }
+        }
+
+        return closest_device_ref;
     }
 
     pub fn getAllDevicesOnBlock(self: *Vehicle, block_ref: BlockRef, allocator: std.mem.Allocator) []DeviceRef {
@@ -880,7 +1002,7 @@ pub const Vehicle = struct {
             .Thruster => |thruster_def| {
                 //
                 const thruster_index = self.thrusters.items.len;
-                const thruster = ThrusterDevice.create(thruster_def);
+                const thruster = ThrusterDevice.create(thruster_def, self.body_id, local_position);
                 self.thrusters.append(thruster) catch unreachable;
 
                 data_index = thruster_index;

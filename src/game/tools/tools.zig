@@ -43,6 +43,7 @@ pub const ToolRenderContext = struct {
 };
 
 pub const ToolDrawUiContext = struct {
+    input: *engine.InputState,
     //
 };
 
