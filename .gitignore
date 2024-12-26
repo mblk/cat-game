@@ -8,7 +8,7 @@ libs/zmath/
 libs/zopengl/
 libs/zstbi/
 
-libs/zbox/libs/
-libs/zearcut/libs/
+libs/zbox/libs/box2d/
+libs/zearcut/libs/earcut.hpp/
 
 imgui.ini
