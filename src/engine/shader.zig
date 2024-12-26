@@ -12,22 +12,6 @@ pub const ShaderError = error{
 pub const Shader = struct {
     id: c_uint,
 
-    // pub fn loadFromFile(
-    //     allocator: std.mem.Allocator,
-    //     vs_name: []const u8,
-    //     fs_name: []const u8,
-    // ) !Shader {
-    //     std.log.info("loading shaders {s} {s} ...", .{ vs_name, fs_name });
-
-    //     const vs_source: [:0]const u8 = try content.loadDataFileWithSentinel(allocator, "shader", vs_name);
-    //     defer allocator.free(vs_source);
-
-    //     const fs_source: [:0]const u8 = try content.loadDataFileWithSentinel(allocator, "shader", fs_name);
-    //     defer allocator.free(fs_source);
-
-    //     return loadFromSource(vs_source, fs_source);
-    // }
-
     pub fn loadFromSource(
         vertex_shader_source: [:0]const u8,
         fragment_shader_source: [:0]const u8,
@@ -131,7 +115,20 @@ pub const Shader = struct {
             return;
         }
 
+        //std.log.info("loc={d} {s} = {d}", .{ loc, name, value });
+
         gl.uniform1i(loc, @intCast(value));
+    }
+
+    pub fn setUInt(self: Shader, name: [:0]const u8, value: u32) void {
+        const loc: c_int = gl.getUniformLocation(self.id, name.ptr);
+
+        if (loc < 0) {
+            std.log.err("uniform not found: {s}", .{name});
+            return;
+        }
+
+        gl.uniform1ui(loc, @intCast(value));
     }
 
     pub fn setFloat(self: Shader, name: [:0]const u8, value: f32) void {

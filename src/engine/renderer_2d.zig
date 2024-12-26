@@ -3,11 +3,11 @@ const std = @import("std");
 const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 const zm = @import("zmath");
-
 const zgui = @import("zgui");
 
 const ContentManager = @import("content_manager.zig").ContentManager;
 const Shader = @import("shader.zig").Shader;
+const Texture = @import("texture.zig").Texture;
 const Camera = @import("camera.zig").Camera;
 
 const vec2 = @import("math.zig").vec2;
@@ -25,6 +25,13 @@ const VertexData = struct {
     color: Color,
 };
 
+const TexturedVertexData = struct {
+    position: vec2,
+    color: Color,
+    texcoord: vec2,
+    tex_id: u32,
+};
+
 const TextData = struct {
     position: vec2,
     color: Color,
@@ -32,14 +39,21 @@ const TextData = struct {
     len: usize,
 };
 
+const TextureData = struct {
+    //id: u32,
+    texture: Texture,
+};
+
 pub const Renderer2D = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    content_manager: *ContentManager,
 
     point_shader: Shader,
     line_shader: Shader,
     triangle_shader: Shader,
+    textured_triangle_shader: Shader,
 
     point_vbo: c_uint,
     point_vao: c_uint,
@@ -50,20 +64,28 @@ pub const Renderer2D = struct {
     triangle_vbo: c_uint,
     triangle_vao: c_uint,
 
+    textured_triangle_vbo: c_uint,
+    textured_triangle_vao: c_uint,
+
     point_data: std.ArrayList(PointVertexData),
     line_data: std.ArrayList(VertexData),
     triangle_data: std.ArrayList(VertexData),
+    textured_triangle_data: std.ArrayList(TexturedVertexData),
     text_data: std.ArrayList(TextData),
 
-    pub fn create(
+    textures: std.ArrayList(TextureData),
+
+    pub fn init(
+        self: *Self,
         allocator: std.mem.Allocator,
         content_manager: *ContentManager,
-    ) !*Self {
+    ) !void {
 
         //
         const point_shader = try content_manager.loadShader(allocator, "point.vs", "point.fs");
         const line_shader = try content_manager.loadShader(allocator, "line.vs", "line.fs");
         const triangle_shader = try content_manager.loadShader(allocator, "triangle.vs", "triangle.fs");
+        const textured_triangle_shader = try content_manager.loadShader(allocator, "textured_triangle.vs", "textured_triangle.fs");
 
         // point buffers
         var point_vao: c_uint = undefined;
@@ -151,14 +173,50 @@ pub const Renderer2D = struct {
         }
         gl.bindVertexArray(0);
 
-        const renderer = try allocator.create(Self);
+        // textured triangle buffers
+        var textured_triangle_vao: c_uint = undefined;
+        gl.genVertexArrays(1, &textured_triangle_vao);
 
-        renderer.* = Renderer2D{
+        var textured_triangle_vbo: c_uint = undefined;
+        gl.genBuffers(1, &textured_triangle_vbo);
+
+        gl.bindVertexArray(textured_triangle_vao);
+        {
+            gl.bindBuffer(gl.ARRAY_BUFFER, textured_triangle_vbo);
+            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(TexturedVertexData) * 1024, null, gl.DYNAMIC_DRAW);
+
+            const stride: usize = @sizeOf(TexturedVertexData);
+            const offset0: [*c]c_uint = @offsetOf(TexturedVertexData, "position");
+            const offset1: [*c]c_uint = @offsetOf(TexturedVertexData, "color");
+            const offset2: [*c]c_uint = @offsetOf(TexturedVertexData, "texcoord");
+            const offset3: [*c]c_uint = @offsetOf(TexturedVertexData, "tex_id");
+
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0);
+            gl.enableVertexAttribArray(0);
+
+            gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, gl.TRUE, stride, offset1);
+            gl.enableVertexAttribArray(1);
+
+            gl.vertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, stride, offset2);
+            gl.enableVertexAttribArray(2);
+
+            gl.vertexAttribIPointer(3, 1, gl.UNSIGNED_INT, stride, offset3); // Note: different function for integer values!
+            gl.enableVertexAttribArray(3);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
+        }
+        gl.bindVertexArray(0);
+
+        // -------
+
+        self.* = Renderer2D{
             .allocator = allocator,
+            .content_manager = content_manager,
 
             .point_shader = point_shader,
             .line_shader = line_shader,
             .triangle_shader = triangle_shader,
+            .textured_triangle_shader = textured_triangle_shader,
 
             .point_vao = point_vao,
             .point_vbo = point_vbo,
@@ -166,21 +224,30 @@ pub const Renderer2D = struct {
             .line_vbo = line_vbo,
             .triangle_vao = triangle_vao,
             .triangle_vbo = triangle_vbo,
+            .textured_triangle_vao = textured_triangle_vao,
+            .textured_triangle_vbo = textured_triangle_vbo,
 
             .point_data = .init(allocator),
             .line_data = .init(allocator),
             .triangle_data = .init(allocator),
+            .textured_triangle_data = .init(allocator),
             .text_data = .init(allocator),
-        };
 
-        return renderer;
+            .textures = .init(allocator),
+        };
     }
 
-    pub fn free(self: *Self) void {
+    pub fn deinit(self: *Self) void {
+        for (self.textures.items) |*texture| {
+            texture.texture.free();
+        }
+        self.textures.deinit();
+
         self.text_data.deinit();
         self.point_data.deinit();
         self.line_data.deinit();
         self.triangle_data.deinit();
+        self.textured_triangle_data.deinit();
 
         gl.deleteVertexArrays(1, &self.point_vao);
         gl.deleteBuffers(1, &self.point_vbo);
@@ -191,11 +258,29 @@ pub const Renderer2D = struct {
         gl.deleteVertexArrays(1, &self.triangle_vao);
         gl.deleteBuffers(1, &self.triangle_vbo);
 
+        gl.deleteVertexArrays(1, &self.textured_triangle_vao);
+        gl.deleteBuffers(1, &self.textured_triangle_vbo);
+
         self.point_shader.free();
         self.line_shader.free();
         self.triangle_shader.free();
+        self.textured_triangle_shader.free();
+    }
 
-        self.allocator.destroy(self);
+    pub fn loadTexture(self: *Self, name: []const u8) !u32 {
+
+        // TODO check if already loaded
+
+        const texture = try self.content_manager.loadTexture(self.allocator, name);
+
+        const index: u32 = @intCast(self.textures.items.len);
+
+        self.textures.append(TextureData{
+            //.id = id,
+            .texture = texture,
+        }) catch unreachable;
+
+        return index;
     }
 
     pub fn addPoint(self: *Self, position: vec2, size: f32, color: Color) void {
@@ -278,6 +363,112 @@ pub const Renderer2D = struct {
         }) catch unreachable;
     }
 
+    pub fn addTexturedTriangle(self: *Self, p1: vec2, p2: vec2, p3: vec2, color: Color, uv1: vec2, uv2: vec2, uv3: vec2, tex_id: u32) void {
+        self.textured_triangle_data.append(TexturedVertexData{
+            .position = p1,
+            .color = color,
+            .texcoord = uv1,
+            .tex_id = tex_id,
+        }) catch unreachable;
+        self.textured_triangle_data.append(TexturedVertexData{
+            .position = p2,
+            .color = color,
+            .texcoord = uv2,
+            .tex_id = tex_id,
+        }) catch unreachable;
+        self.textured_triangle_data.append(TexturedVertexData{
+            .position = p3,
+            .color = color,
+            .texcoord = uv3,
+            .tex_id = tex_id,
+        }) catch unreachable;
+    }
+
+    pub fn addSolidQuad(self: *Self, points: [4]vec2, color: Color) void {
+        // Note: using ccw because that's what box2d uses
+
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        // 1:
+        // bottom left
+        self.triangle_data.append(VertexData{ .position = p_bottom_left, .color = color }) catch unreachable;
+        // bottom right
+        self.triangle_data.append(VertexData{ .position = p_bottom_right, .color = color }) catch unreachable;
+        // top right
+        self.triangle_data.append(VertexData{ .position = p_top_right, .color = color }) catch unreachable;
+
+        // 2:
+        // bottom left
+        self.triangle_data.append(VertexData{ .position = p_bottom_left, .color = color }) catch unreachable;
+        // top right
+        self.triangle_data.append(VertexData{ .position = p_top_right, .color = color }) catch unreachable;
+        // top left
+        self.triangle_data.append(VertexData{ .position = p_top_left, .color = color }) catch unreachable;
+    }
+
+    pub fn addTexturedQuad(self: *Self, points: [4]vec2, color: Color, tex_id: u32) void {
+        // Note: using ccw because that's what box2d uses
+
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = vec2.init(0, 0);
+        const uv_bottom_right = vec2.init(1, 0);
+        const uv_top_right = vec2.init(1, 1);
+        const uv_top_left = vec2.init(0, 1);
+
+        // 1:
+        // bottom left
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
+        // bottom right
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_right, .color = color, .texcoord = uv_bottom_right, .tex_id = tex_id }) catch unreachable;
+        // top right
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
+
+        // 2:
+        // bottom left
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
+        // top right
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
+        // top left
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_left, .color = color, .texcoord = uv_top_left, .tex_id = tex_id }) catch unreachable;
+    }
+
+    pub fn addTexturedQuadRepeating(self: *Self, points: [4]vec2, color: Color, tex_id: u32, tex_scaling: f32) void {
+        // Note: using ccw because that's what box2d uses
+
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = points[0].scale(tex_scaling);
+        const uv_bottom_right = points[1].scale(tex_scaling);
+        const uv_top_right = points[2].scale(tex_scaling);
+        const uv_top_left = points[3].scale(tex_scaling);
+
+        // 1:
+        // bottom left
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
+        // bottom right
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_right, .color = color, .texcoord = uv_bottom_right, .tex_id = tex_id }) catch unreachable;
+        // top right
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
+
+        // 2:
+        // bottom left
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
+        // top right
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
+        // top left
+        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_left, .color = color, .texcoord = uv_top_left, .tex_id = tex_id }) catch unreachable;
+    }
+
     pub fn addText(self: *Self, position: vec2, color: Color, comptime fmt: []const u8, args: anytype) void {
         self.text_data.append(TextData{
             .position = position,
@@ -303,6 +494,57 @@ pub const Renderer2D = struct {
             @floatFromInt(camera.viewport_size[0]),
             @floatFromInt(camera.viewport_size[1]),
         };
+
+        // textured triangles
+        if (self.textured_triangle_data.items.len > 0) {
+            // upload data
+            gl.bindBuffer(gl.ARRAY_BUFFER, self.textured_triangle_vbo);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                @intCast(@sizeOf(TexturedVertexData) * self.textured_triangle_data.items.len),
+                self.textured_triangle_data.items.ptr,
+                gl.DYNAMIC_DRAW,
+            );
+            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+
+            // render
+            self.textured_triangle_shader.bind();
+            {
+                self.textured_triangle_shader.setMat4("uModel", model);
+                self.textured_triangle_shader.setMat4("uView", view);
+                self.textured_triangle_shader.setMat4("uProjection", projection);
+
+                gl.bindVertexArray(self.textured_triangle_vao);
+
+                // setup texture units
+                var buffer: [128]u8 = undefined;
+                for (self.textures.items, 0..) |texture, texture_index| {
+                    gl.activeTexture(gl.TEXTURE0 + @as(c_uint, @intCast(texture_index)));
+                    gl.bindTexture(gl.TEXTURE_2D, texture.texture.id);
+
+                    const s = std.fmt.bufPrintZ(&buffer, "uTextures[{d}]", .{texture_index}) catch unreachable;
+                    self.textured_triangle_shader.setInt(s, @intCast(texture_index));
+                    // uTextures[0] = GL_TEXTURE0
+                    // uTextures[1] = GL_TEXTURE1
+                    // ...
+                }
+
+                gl.drawArrays(gl.TRIANGLES, 0, @intCast(self.textured_triangle_data.items.len));
+
+                // cleanup texture units
+                for (self.textures.items, 0..) |_, texture_index| {
+                    gl.activeTexture(gl.TEXTURE0 + @as(c_uint, @intCast(texture_index)));
+                    gl.bindTexture(gl.TEXTURE_2D, 0);
+                }
+                gl.activeTexture(gl.TEXTURE0);
+
+                gl.bindVertexArray(0);
+            }
+            self.textured_triangle_shader.unbind();
+
+            // clear buffer
+            self.textured_triangle_data.clearRetainingCapacity();
+        }
 
         // triangles
         if (self.triangle_data.items.len > 0) {

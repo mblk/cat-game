@@ -3,20 +3,31 @@ const std = @import("std");
 const Shader = @import("shader.zig").Shader;
 const ShaderError = @import("shader.zig").ShaderError;
 
+const Texture = @import("texture.zig").Texture;
+
 pub const ContentManager = struct {
     // deps
-    allocator: std.mem.Allocator,
+    //allocator: std.mem.Allocator,
 
-    pub fn create(allocator: std.mem.Allocator) !*ContentManager { // TODO no need for allocating?
-        var content_manager = try allocator.create(ContentManager);
+    //TODO add caches etc
 
-        content_manager.allocator = allocator;
+    pub fn create(allocator: std.mem.Allocator) !ContentManager {
+        //var content_manager = try allocator.create(ContentManager);
 
-        return content_manager;
+        //content_manager.allocator = allocator;
+
+        //return content_manager;
+
+        _ = allocator;
+
+        return ContentManager{
+            //.allocator = allocator,
+        };
     }
 
     pub fn destroy(self: *ContentManager) void {
-        self.allocator.destroy(self);
+        //self.allocator.destroy(self);
+        _ = self;
     }
 
     pub fn getDataFilePath(
@@ -47,7 +58,6 @@ pub const ContentManager = struct {
         const file = try std.fs.openFileAbsolute(file_path, .{});
         defer file.close();
 
-        //const file_size = (try file.stat()).size;
         const file_size = try file.getEndPos();
         const file_buffer: []const u8 = try file.readToEndAllocOptions(allocator, file_size, null, @alignOf(u8), null); // not terminated
 
@@ -66,7 +76,6 @@ pub const ContentManager = struct {
         const file = try std.fs.openFileAbsolute(file_path, .{});
         defer file.close();
 
-        //const file_size = (try file.stat()).size;
         const file_size = try file.getEndPos();
         const file_buffer: [:0]u8 = try file.readToEndAllocOptions(allocator, file_size, null, @alignOf(u8), 0); // 0-terminated
 
@@ -88,5 +97,20 @@ pub const ContentManager = struct {
         const shader = try Shader.loadFromSource(vs_source, fs_source); // ShaderError
 
         return shader;
+    }
+
+    pub fn loadTexture(
+        self: *ContentManager,
+        allocator: std.mem.Allocator,
+        name: []const u8,
+    ) !Texture {
+
+        //
+        const data = try self.loadDataFile(allocator, "textures", name);
+        defer allocator.free(data);
+
+        const texture = try Texture.loadFromMemory(data);
+
+        return texture;
     }
 };

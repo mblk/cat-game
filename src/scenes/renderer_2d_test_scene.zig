@@ -20,21 +20,33 @@ const Renderer2DTestScene = struct {
     const Self = Renderer2DTestScene;
 
     camera: engine.Camera,
-    renderer: *engine.Renderer2D,
+    renderer: engine.Renderer2D,
+
+    texture1: u32,
+    texture2: u32,
+    texture3: u32,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
         const self = try context.allocator.create(Self);
-        self.* = Self{
-            .camera = engine.Camera.create(),
-            .renderer = try engine.Renderer2D.create(context.allocator, context.content_manager),
-        };
+        // self.* = Self{
+        //     .camera = engine.Camera.create(),
+        // };
+
+        self.camera = engine.Camera.create();
+
+        try self.renderer.init(context.allocator, context.content_manager);
+
+        self.texture1 = try self.renderer.loadTexture("cat1.png");
+        self.texture2 = try self.renderer.loadTexture("cat2.png");
+        self.texture3 = try self.renderer.loadTexture("cardboard1.png");
+
         return self;
     }
 
     fn unload(self_ptr: *anyopaque, context: *const engine.UnloadContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        self.renderer.free();
+        self.renderer.deinit();
 
         context.allocator.destroy(self);
     }
@@ -103,6 +115,57 @@ const Renderer2DTestScene = struct {
             vec2.init(0.0, -30.0),
             Color.red,
         );
+
+        // ccw
+        self.renderer.addTexturedTriangle(
+            vec2.init(-60.0, 0.0), // top left
+            vec2.init(-60.0, -30.0), // bottom left
+            vec2.init(-30.0, -30.0), // bottom right
+            Color.white,
+            vec2.init(0, 1),
+            vec2.init(0, 0),
+            vec2.init(1, 0),
+            self.texture1,
+        );
+        self.renderer.addTexturedTriangle(
+            vec2.init(-90.0, 0.0), // top left
+            vec2.init(-90.0, -30.0), // bottom left
+            vec2.init(-60.0, -30.0), // bottom right
+            Color.white,
+            vec2.init(0, 1),
+            vec2.init(0, 0),
+            vec2.init(1, 0),
+            self.texture2,
+        );
+        self.renderer.addTexturedTriangle(
+            vec2.init(-120.0, 0.0), // top left
+            vec2.init(-120.0, -30.0), // bottom left
+            vec2.init(-90.0, -30.0), // bottom right
+            Color.white,
+            vec2.init(0, 1),
+            vec2.init(0, 0),
+            vec2.init(1, 0),
+            self.texture3,
+        );
+
+        self.renderer.addTexturedQuad([_]vec2{
+            vec2.init(-60, -60),
+            vec2.init(-30, -60),
+            vec2.init(-30, -30),
+            vec2.init(-60, -30),
+        }, Color.white, self.texture3);
+        self.renderer.addTexturedQuad([_]vec2{
+            vec2.init(-90, -60),
+            vec2.init(-60, -60),
+            vec2.init(-60, -30),
+            vec2.init(-90, -30),
+        }, Color.white, self.texture2);
+        self.renderer.addTexturedQuad([_]vec2{
+            vec2.init(-120, -60),
+            vec2.init(-90, -60),
+            vec2.init(-90, -30),
+            vec2.init(-120, -30),
+        }, Color.white, self.texture1);
 
         self.renderer.addText(vec2.init(0, 0), Color.red, "Hello !", .{});
         self.renderer.addText(vec2.init(0, -10), Color.green, "World !", .{});

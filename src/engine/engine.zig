@@ -24,4 +24,6 @@ pub const Camera = @import("camera.zig").Camera;
 
 const math = @import("math.zig");
 pub const vec2 = math.vec2;
+pub const rot2 = math.rot2;
+pub const Transform2 = math.Transform2;
 pub const Color = math.Color;

@@ -2,6 +2,8 @@ const std = @import("std");
 
 const engine = @import("../engine/engine.zig");
 const vec2 = engine.vec2;
+const rot2 = engine.rot2;
+const Transform2 = engine.Transform2;
 
 const zbox = @import("zbox");
 const b2 = zbox.API;
@@ -314,12 +316,11 @@ pub const WheelDevice = struct {
         // create wheel body
         var body_def = b2.b2DefaultBodyDef();
         body_def.type = b2.b2_dynamicBody;
-        body_def.position.x = 0;
-        body_def.position.y = 0;
+        body_def.position = position_world.to_b2();
         const body_id = b2.b2CreateBody(world_id, &body_def);
 
         const circle = b2.b2Circle{
-            .center = position_world.to_b2(),
+            .center = b2.b2Vec2_zero,
             .radius = def.radius,
         };
 
@@ -338,8 +339,8 @@ pub const WheelDevice = struct {
         wheel_joint_def.localAnchorA = b2.b2Body_GetLocalPoint(wheel_joint_def.bodyIdA, position_world.to_b2());
         wheel_joint_def.localAnchorB = b2.b2Body_GetLocalPoint(wheel_joint_def.bodyIdB, position_world.to_b2());
 
-        std.log.info("local anchor a {any}", .{wheel_joint_def.localAnchorA});
-        std.log.info("local anchor b {any}", .{wheel_joint_def.localAnchorB});
+        // std.log.info("local anchor a {any}", .{wheel_joint_def.localAnchorA});
+        // std.log.info("local anchor b {any}", .{wheel_joint_def.localAnchorB});
 
         wheel_joint_def.enableLimit = true;
         wheel_joint_def.upperTranslation = def.max_suspension / 2;
@@ -394,6 +395,11 @@ pub const WheelDevice = struct {
         } else {
             b2.b2WheelJoint_EnableMotor(self.joint_id, false);
         }
+    }
+
+    pub fn getWheelTransform(self: *const Self) Transform2 {
+        const b2transform = b2.b2Body_GetTransform(self.body_id); // TODO maybe do this once in update?
+        return Transform2.from_b2(b2transform);
     }
 };
 
@@ -564,35 +570,35 @@ pub const Vehicle = struct {
         }
     }
 
-    pub fn transformWorldToLocal(self: *Vehicle, world_position: vec2) vec2 {
+    pub fn transformWorldToLocal(self: *const Vehicle, world_position: vec2) vec2 {
         std.debug.assert(self.alive);
 
         const transform = b2.b2Body_GetTransform(self.body_id);
         return vec2.from_b2(b2.b2InvTransformPoint(transform, world_position.to_b2()));
     }
 
-    pub fn transformLocalToWorld(self: *Vehicle, local_position: vec2) vec2 {
+    pub fn transformLocalToWorld(self: *const Vehicle, local_position: vec2) vec2 {
         std.debug.assert(self.alive);
 
         const transform = b2.b2Body_GetTransform(self.body_id);
         return vec2.from_b2(b2.b2TransformPoint(transform, local_position.to_b2()));
     }
 
-    pub fn rotateLocalToWorld(self: *Vehicle, local_vector: vec2) vec2 {
+    pub fn rotateLocalToWorld(self: *const Vehicle, local_vector: vec2) vec2 {
         std.debug.assert(self.alive);
 
         const transform = b2.b2Body_GetTransform(self.body_id);
         return vec2.from_b2(b2.b2RotateVector(transform.q, local_vector.to_b2()));
     }
 
-    pub fn rotateWorldToLocal(self: *Vehicle, world_vector: vec2) vec2 {
+    pub fn rotateWorldToLocal(self: *const Vehicle, world_vector: vec2) vec2 {
         std.debug.assert(self.alive);
 
         const transform = b2.b2Body_GetTransform(self.body_id);
         return vec2.from_b2(b2.b2InvRotateVector(transform.q, world_vector.to_b2()));
     }
 
-    pub fn getBlock(self: *Vehicle, ref: BlockRef) ?*Block {
+    pub fn getBlock(self: *const Vehicle, ref: BlockRef) ?*Block {
         std.debug.assert(self.alive);
 
         const block: *Block = &self.blocks.items[ref.block_index];
@@ -603,7 +609,7 @@ pub const Vehicle = struct {
         return null;
     }
 
-    pub fn getBlockAtPosition(self: *Vehicle, local_position: vec2) ?BlockRef {
+    pub fn getBlockAtPosition(self: *const Vehicle, local_position: vec2) ?BlockRef {
         std.debug.assert(self.alive);
 
         var closest_dist: f32 = std.math.floatMax(f32);
@@ -728,7 +734,7 @@ pub const Vehicle = struct {
         //
     }
 
-    fn blocksAreTouching(block1: *Block, block2: *Block) bool {
+    fn blocksAreTouching(block1: *const Block, block2: *const Block) bool {
         const p1 = block1.local_position;
         const p2 = block2.local_position;
 
@@ -748,7 +754,7 @@ pub const Vehicle = struct {
         return overlapX and overlapY;
     }
 
-    fn getContactNormal(block1: *Block, block2: *Block) ?vec2 {
+    fn getContactNormal(block1: *const Block, block2: *const Block) ?vec2 {
         const p1 = block1.local_position;
         const p2 = block2.local_position;
 
@@ -808,7 +814,7 @@ pub const Vehicle = struct {
         }
     };
 
-    pub fn getSplitParts(self: *Vehicle, temp_allocator: std.mem.Allocator) SplitPartsResult {
+    pub fn getSplitParts(self: *const Vehicle, temp_allocator: std.mem.Allocator) SplitPartsResult {
 
         // TODO make a generic graph-type with graph.findPartitions ?
 
@@ -905,7 +911,7 @@ pub const Vehicle = struct {
     // devices
     //
 
-    pub fn getDevice(self: *Vehicle, ref: DeviceRef) ?*Device {
+    pub fn getDevice(self: *const Vehicle, ref: DeviceRef) ?*Device {
         std.debug.assert(self.alive);
 
         const device: *Device = &self.devices.items[ref.device_index];
@@ -917,7 +923,7 @@ pub const Vehicle = struct {
         return null;
     }
 
-    pub fn getClosestDevice(self: *Vehicle, position_world: vec2, max_distance: f32) ?DeviceRef {
+    pub fn getClosestDevice(self: *const Vehicle, position_world: vec2, max_distance: f32) ?DeviceRef {
         std.debug.assert(self.alive);
 
         var closest_dist: f32 = std.math.floatMax(f32);
@@ -941,7 +947,7 @@ pub const Vehicle = struct {
         return closest_device_ref;
     }
 
-    pub fn getAllDevicesOnBlock(self: *Vehicle, block_ref: BlockRef, allocator: std.mem.Allocator) []DeviceRef {
+    pub fn getAllDevicesOnBlock(self: *const Vehicle, block_ref: BlockRef, allocator: std.mem.Allocator) []DeviceRef {
         std.debug.assert(self.alive);
 
         var result = std.ArrayList(DeviceRef).init(allocator);
@@ -960,7 +966,7 @@ pub const Vehicle = struct {
         return result.toOwnedSlice() catch unreachable;
     }
 
-    pub fn getDeviceTransferData(self: *Vehicle, device_ref: DeviceRef) ?DeviceTransferData {
+    pub fn getDeviceTransferData(self: *const Vehicle, device_ref: DeviceRef) ?DeviceTransferData {
         std.debug.assert(self.alive);
 
         if (self.getDevice(device_ref)) |device| {

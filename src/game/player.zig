@@ -2,6 +2,8 @@ const std = @import("std");
 
 const engine = @import("../engine/engine.zig");
 const vec2 = engine.vec2;
+const rot2 = engine.rot2;
+const Transform2 = engine.Transform2;
 const Color = engine.Color;
 
 const zbox = @import("zbox");
@@ -19,13 +21,12 @@ pub const Player = struct {
     has_mouse_joint: bool = false,
     mouse_joint: b2.b2JointId = b2.b2_nullJointId,
 
-    pub fn create(world_id: b2.b2WorldId) Player {
+    pub fn create(world_id: b2.b2WorldId, position: vec2) Player {
+        std.log.info("player create", .{});
+
         var body_def = b2.b2DefaultBodyDef();
         body_def.type = b2.b2_dynamicBody;
-        body_def.position = b2.b2Vec2{
-            .x = 0,
-            .y = 0,
-        };
+        body_def.position = position.to_b2();
         body_def.fixedRotation = true;
 
         const body_id = b2.b2CreateBody(world_id, &body_def);
@@ -90,6 +91,12 @@ pub const Player = struct {
             .world_id = world_id,
             .body_id = body_id,
         };
+    }
+
+    pub fn destroy(self: *Player) void {
+        std.log.info("player destroy", .{});
+
+        b2.b2DestroyBody(self.body_id);
     }
 
     const QueryData = struct {
@@ -355,5 +362,10 @@ pub const Player = struct {
         if (self.show_hand) {
             renderer.addLine(self.hand_start, self.hand_end, Color.red);
         }
+    }
+
+    pub fn getTransform(self: *const Player) Transform2 {
+        const t = b2.b2Body_GetTransform(self.body_id); // TODO do only once per frame in update?
+        return Transform2.from_b2(t);
     }
 };

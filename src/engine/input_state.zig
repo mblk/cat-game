@@ -7,7 +7,7 @@ pub const MouseButton = glfw.MouseButton;
 
 // keyboard
 key_states: [512]bool = [_]bool{false} ** 512,
-prev_key_states: [512]bool = [_]bool{false} ** 512,
+prev_key_states: [512]bool = [_]bool{false} ** 512, // TODO pack more effeciently?
 
 key_down_events: [512]bool = [_]bool{false} ** 512,
 key_up_events: [512]bool = [_]bool{false} ** 512,

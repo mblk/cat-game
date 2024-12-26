@@ -11,10 +11,12 @@ const zgui = @import("zgui");
 const Renderer2D = @import("renderer_2d.zig").Renderer2D;
 
 pub const ZBoxRenderer = struct {
+    const Self = @This();
+
     b2_debug_draw: b2.b2DebugDraw,
     renderer: *Renderer2D,
 
-    pub fn create(renderer: *Renderer2D) ZBoxRenderer {
+    pub fn init(self: *Self, renderer: *Renderer2D) void {
         var b2_debug_draw: b2.b2DebugDraw = b2.b2DefaultDebugDraw();
 
         b2_debug_draw.DrawPolygon = b2_draw_polygon;
@@ -27,13 +29,13 @@ pub const ZBoxRenderer = struct {
         b2_debug_draw.DrawPoint = b2_draw_point;
         b2_debug_draw.DrawString = b2_draw_string;
 
-        b2_debug_draw.drawShapes = true;
-        b2_debug_draw.drawJoints = true;
+        //b2_debug_draw.drawShapes = true;
+        //b2_debug_draw.drawJoints = true;
         //b2_debug_draw.drawAABBs = true;
 
         b2_debug_draw.context = renderer;
 
-        return ZBoxRenderer{
+        self.* = ZBoxRenderer{
             .b2_debug_draw = b2_debug_draw,
             .renderer = renderer,
         };

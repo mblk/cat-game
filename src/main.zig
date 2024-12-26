@@ -4,6 +4,8 @@ const glfw = @import("zglfw");
 const zopengl = @import("zopengl");
 const gl = zopengl.bindings;
 const zgui = @import("zgui");
+const zstbi = @import("zstbi");
+const zearcut = @import("zearcut");
 
 const engine = @import("engine/engine.zig");
 const Window = engine.Window;
@@ -171,6 +173,18 @@ pub fn main() !void {
 
     // -----------------------------------
 
+    zstbi.init(long_term_alloc);
+    zstbi.setFlipVerticallyOnLoad(true);
+    defer zstbi.deinit();
+
+    // -----------------------------------
+
+    //zearcut.init(long_term_alloc); // TODO which allocator?
+    zearcut.init(per_frame_alloc); // TODO which allocator?
+    defer zearcut.deinit();
+
+    // -----------------------------------
+
     zgui.init(long_term_alloc);
     defer zgui.deinit();
 
@@ -196,7 +210,7 @@ pub fn main() !void {
     defer zgui.backend.deinit();
 
     // -----------------------------------
-    var scene_manager = try SceneManager.create(long_term_alloc, per_frame_alloc, window, content_manager, &save_manager);
+    var scene_manager = try SceneManager.create(long_term_alloc, per_frame_alloc, window, &content_manager, &save_manager);
     defer scene_manager.destroy();
 
     try scene_manager.registerScene(MenuScene.getScene());

@@ -6,8 +6,8 @@ const vec2 = @import("math.zig").vec2;
 pub const Camera = struct {
     viewport_size: [2]i32,
     zoom_level: i32,
-    focus_position: [2]f32,
-    offset: [2]f32,
+    focus_position: vec2,
+    offset: vec2,
 
     projection: zmath.Mat,
     view: zmath.Mat,
@@ -16,8 +16,8 @@ pub const Camera = struct {
         var camera = Camera{
             .viewport_size = [2]i32{ 600, 600 },
             .zoom_level = 0,
-            .focus_position = [2]f32{ 0.0, 0.0 },
-            .offset = [2]f32{ 0.0, 0.0 },
+            .focus_position = vec2.zero,
+            .offset = vec2.zero,
             .projection = undefined,
             .view = undefined,
         };
@@ -49,10 +49,12 @@ pub const Camera = struct {
         //const effective_pos = self.focus_position + self.offset;
         //self.view = zmath.Mat4.translate(self.view, zmath.Vec3.init(-effective_pos.x, -effective_pos.y, 0.0));
 
-        const effective_pos_x = self.offset[0];
-        const effective_pos_y = self.offset[1];
+        const effective_pos = self.focus_position.add(self.offset);
 
-        self.view = zmath.translation(-effective_pos_x, -effective_pos_y, 0.0);
+        // const effective_pos_x = self.focus_position[0] + self.offset[0];
+        // const effective_pos_y = self.focus_position[1] + self.offset[1];
+
+        self.view = zmath.translation(-effective_pos.x, -effective_pos.y, 0.0);
     }
 
     pub fn setViewportSize(self: *Camera, size: [2]i32) void {
@@ -62,8 +64,8 @@ pub const Camera = struct {
 
     pub fn reset(self: *Camera) void {
         self.zoom_level = 0;
-        self.offset = [_]f32{ 0.0, 0.0 };
-
+        self.offset = vec2.zero;
+        self.focus_position = vec2.zero;
         self.update();
     }
 
@@ -73,15 +75,14 @@ pub const Camera = struct {
     }
 
     pub fn changePosition(self: *Camera, delta: vec2) void {
-        self.offset[0] += delta.x;
-        self.offset[1] += delta.y;
+        self.offset = self.offset.add(delta);
         self.update();
     }
 
-    // pub fn setFocusPosition(self: *Camera, position: zmath.Vec2) void {
-    //     self.focus_position = position;
-    //     self.update();
-    // }
+    pub fn setFocusPosition(self: *Camera, position: vec2) void {
+        self.focus_position = position;
+        self.update();
+    }
 
     pub fn screenToWorld(self: *const Camera, screen_position: [2]f32) vec2 {
         //
@@ -103,13 +104,7 @@ pub const Camera = struct {
 
         const world_coords = zmath.mul(view_coords, inv_view);
 
-        //return [2]f32{ world_coords[0], world_coords[1] };
-
         return vec2.init(world_coords[0], world_coords[1]);
-
-        // var foo: [4]f32 = undefined;
-        // zmath.storeArr4(&foo, world_coords);
-        // return [2]f32{ foo[0], foo[1] };
     }
 
     pub fn worldToScreen(self: *const Camera, world_position: vec2) vec2 {

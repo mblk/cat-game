@@ -24,6 +24,8 @@ const BlockRef = @import("vehicle.zig").BlockRef;
 const DeviceRef = @import("vehicle.zig").DeviceRef;
 const DeviceTransferData = @import("vehicle.zig").DeviceTransferData;
 
+const Player = @import("player.zig").Player;
+
 pub const VehicleRef = struct {
     vehicle_index: usize,
     //vehicle_version
@@ -66,6 +68,7 @@ pub const World = struct {
     world_id: b2.b2WorldId,
     ground_segments: std.ArrayList(GroundSegment),
     vehicles: std.ArrayList(Vehicle),
+    players: std.ArrayList(Player),
 
     pub fn create(allocator: std.mem.Allocator) World {
         const world_size = vec2.init(200, 100);
@@ -76,17 +79,17 @@ pub const World = struct {
         const world_id = b2.b2CreateWorld(&world_def);
 
         // ground body
-        {
-            var ground_body_def = b2.b2DefaultBodyDef();
-            ground_body_def.position.x = 0.0;
-            ground_body_def.position.y = -25.0;
+        // {
+        //     var ground_body_def = b2.b2DefaultBodyDef();
+        //     ground_body_def.position.x = 0.0;
+        //     ground_body_def.position.y = -25.0;
 
-            const ground_id = b2.b2CreateBody(world_id, &ground_body_def);
+        //     const ground_id = b2.b2CreateBody(world_id, &ground_body_def);
 
-            const ground_box = b2.b2MakeBox(40.0, 2.0);
-            const ground_shape_def = b2.b2DefaultShapeDef();
-            _ = b2.b2CreatePolygonShape(ground_id, &ground_shape_def, &ground_box);
-        }
+        //     const ground_box = b2.b2MakeBox(40.0, 2.0);
+        //     const ground_shape_def = b2.b2DefaultShapeDef();
+        //     _ = b2.b2CreatePolygonShape(ground_id, &ground_shape_def, &ground_box);
+        // }
 
         // outer bounds chain segment
         {
@@ -116,17 +119,23 @@ pub const World = struct {
             .world_id = world_id,
             .ground_segments = .init(allocator),
             .vehicles = .init(allocator),
+            .players = .init(allocator),
         };
     }
 
     pub fn free(self: *World) void {
         self.clear();
 
+        for (self.players.items) |*player| {
+            player.destroy();
+        }
+
         for (self.vehicles.items) |*vehicle| {
             if (!vehicle.alive) continue;
             vehicle.destroy();
         }
 
+        self.players.deinit();
         self.vehicles.deinit();
         self.ground_segments.deinit();
     }
@@ -344,23 +353,23 @@ pub const World = struct {
     // testing stuff
     //
 
-    pub fn createDynamicBox(self: *World, position: vec2) void {
-        var body_def = b2.b2DefaultBodyDef();
-        body_def.type = b2.b2_dynamicBody;
-        body_def.position.x = position.x;
-        body_def.position.y = position.y;
+    // pub fn createDynamicBox(self: *World, position: vec2) void {
+    //     var body_def = b2.b2DefaultBodyDef();
+    //     body_def.type = b2.b2_dynamicBody;
+    //     body_def.position.x = position.x;
+    //     body_def.position.y = position.y;
 
-        //body_def.fixedRotation = true;
+    //     //body_def.fixedRotation = true;
 
-        const body_id = b2.b2CreateBody(self.world_id, &body_def);
+    //     const body_id = b2.b2CreateBody(self.world_id, &body_def);
 
-        const box = b2.b2MakeBox(2.0, 1.0); // 4x2
-        var shape_def = b2.b2DefaultShapeDef();
-        shape_def.density = 1.0;
-        shape_def.friction = 0.3;
-        //shape_def.restitution = 0.5;
-        _ = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
-    }
+    //     const box = b2.b2MakeBox(2.0, 1.0); // 4x2
+    //     var shape_def = b2.b2DefaultShapeDef();
+    //     shape_def.density = 1.0;
+    //     shape_def.friction = 0.3;
+    //     //shape_def.restitution = 0.5;
+    //     _ = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
+    // }
 
     //
     // vehicles
@@ -657,6 +666,16 @@ pub const World = struct {
         }
 
         return closest_vehicle;
+    }
+
+    //
+    // players
+    //
+
+    pub fn createPlayer(self: *World, position: vec2) void {
+        const player = Player.create(self.world_id, position);
+
+        self.players.append(player) catch unreachable;
     }
 };
 

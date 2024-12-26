@@ -39,6 +39,7 @@ pub const Scene = struct {
 pub const LoadContext = struct {
     allocator: std.mem.Allocator,
     content_manager: *ContentManager,
+    save_manager: *SaveManager,
 };
 
 pub const UnloadContext = struct {
@@ -92,6 +93,10 @@ pub const SceneManager = struct {
     // scenes
     all_scenes: std.ArrayList(SceneDescriptor),
     active_scene: ?Scene,
+
+    // temp state/settings
+    render_wireframe: bool = false,
+    render_clear_color: [3]f32 = [_]f32{ 0, 0, 0 },
 
     pub fn create(
         allocator: std.mem.Allocator,
@@ -158,6 +163,7 @@ pub const SceneManager = struct {
         const load_context = LoadContext{
             .allocator = self.allocator,
             .content_manager = self.content_manager,
+            .save_manager = self.save_manager,
         };
 
         self.active_scene = Scene{
@@ -226,8 +232,14 @@ pub const SceneManager = struct {
         //
         // clear and render
         //
-        gl.clearColor(0.1, 0.1, 0.1, 1.0);
+        gl.clearColor(self.render_clear_color[0], self.render_clear_color[1], self.render_clear_color[2], 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
+
+        if (self.render_wireframe) {
+            gl.polygonMode(gl.FRONT_AND_BACK, gl.LINE);
+        } else {
+            gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
+        }
 
         if (self.active_scene) |scene| {
             const render_context = RenderContext{
@@ -277,28 +289,39 @@ pub const SceneManager = struct {
         //zgui.setNextWindowSize(.{ .w = 200, .h = 600 });
 
         if (zgui.begin("Debug", .{})) {
-            zgui.text("dt {d:.3}", .{dt});
+            zgui.text("dt {d:.3} fps {d:.1}", .{ dt, 1.0 / dt });
 
-            zgui.separator();
+            if (zgui.collapsingHeader("scenes", .{})) {
+                if (self.active_scene) |scene| {
+                    zgui.text("scene: {s}", .{scene.descriptor.name});
+                } else {
+                    zgui.text("scene: ---", .{});
+                }
 
-            if (self.active_scene) |scene| {
-                zgui.text("scene: {s}", .{scene.descriptor.name});
-            } else {
-                zgui.text("scene: ---", .{});
-            }
+                var buffer: [128]u8 = undefined;
 
-            var buffer: [128]u8 = undefined;
+                for (self.all_scenes.items) |scene| {
+                    const s = std.fmt.bufPrintZ(&buffer, "switch to {s}", .{scene.name}) catch unreachable;
 
-            for (self.all_scenes.items) |scene| {
-                const s = std.fmt.bufPrintZ(&buffer, "switch to {s}", .{scene.name}) catch unreachable;
-
-                if (zgui.button(s, .{})) {
-                    command_buffer.change_scene = true;
-                    command_buffer.new_scene_name = scene.name;
+                    if (zgui.button(s, .{})) {
+                        command_buffer.change_scene = true;
+                        command_buffer.new_scene_name = scene.name;
+                    }
                 }
             }
 
-            zgui.separator();
+            if (zgui.collapsingHeader("render", .{})) {
+                if (zgui.radioButton("Wireframe", .{ .active = self.render_wireframe })) {
+                    self.render_wireframe = true;
+                }
+                if (zgui.radioButton("Fill", .{ .active = !self.render_wireframe })) {
+                    self.render_wireframe = false;
+                }
+
+                _ = zgui.colorEdit3("Clear color", .{
+                    .col = &self.render_clear_color,
+                });
+            }
 
             if (zgui.collapsingHeader("memory", .{})) {
                 {
@@ -317,9 +340,8 @@ pub const SceneManager = struct {
                     zgui.text("max memory used: {d}", .{stats.max_memory_used});
                 }
             }
-
-            zgui.end();
         }
+        zgui.end();
     }
 
     fn getSceneByName(self: SceneManager, name: []const u8) ?SceneDescriptor {

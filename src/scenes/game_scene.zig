@@ -29,6 +29,8 @@ const ToolManager = tools.ToolManager;
 const GroundEditTool = @import("../game/tools/ground_edit_tool.zig").GroundEditTool;
 const VehicleEditTool = @import("../game/tools/vehicle_edit_tool.zig").VehicleEditTool;
 
+const WorldRenderer = @import("../game/renderer/world_renderer.zig").WorldRenderer;
+
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
         .name = "game",
@@ -44,9 +46,8 @@ const GameScene = struct {
     const Self = GameScene;
 
     const MasterMode = enum {
-        Idle,
-        ControlPlayer,
-        CreateBox,
+        Edit,
+        Play,
     };
 
     // defs
@@ -54,19 +55,20 @@ const GameScene = struct {
 
     // state
     world: World,
-    player: Player,
+    //player: Player,
 
     // visual
     camera: engine.Camera,
-    renderer: *engine.Renderer2D,
+    renderer: engine.Renderer2D,
     zbox_renderer: engine.ZBoxRenderer,
+    world_renderer: WorldRenderer,
 
     // input
-    mouse_position: vec2 = vec2.init(0, 0), // XXX
+    mouse_position: vec2 = vec2.init(0, 0),
     prev_mouse_position: vec2 = vec2.init(0, 0),
     mouse_diff: vec2 = vec2.init(0, 0),
 
-    master_mode: MasterMode = .Idle,
+    master_mode: MasterMode = .Play,
 
     moving_camera: bool = false,
 
@@ -77,48 +79,57 @@ const GameScene = struct {
     tool_manager: ToolManager,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
+        // TODO correct error handling (eg. errdefer)
+
         const vehicle_defs = try VehicleDefs.load(context.allocator);
 
         var world = World.create(context.allocator);
         errdefer world.free();
-        //try world.load();
-        //world.createDynamicBox(vec2.init(10, 10));
-        //world.createDynamicBox(vec2.init(15, 10));
-        world.createDynamicBox(vec2.init(20, 10));
-
-        const player = Player.create(world.world_id);
 
         const camera = engine.Camera.create();
-
-        var renderer = try engine.Renderer2D.create(context.allocator, context.content_manager);
-        errdefer renderer.free();
-
-        const zbox_renderer = engine.ZBoxRenderer.create(renderer);
 
         const self = try context.allocator.create(Self);
         self.* = Self{
             .vehicle_defs = vehicle_defs,
             .world = world, // Note: This makes a copy
-            .player = player,
             .camera = camera,
-            .renderer = renderer,
-            .zbox_renderer = zbox_renderer,
+            .renderer = undefined,
+            .zbox_renderer = undefined,
+            .world_renderer = undefined,
             .tool_manager = undefined, // XXX needs world address
         };
+
+        try self.renderer.init(context.allocator, context.content_manager);
+        self.zbox_renderer.init(&self.renderer);
+        try self.world_renderer.init(&self.renderer);
 
         @memcpy(self.world_save_name_buffer[0..7], "world_1");
         @memcpy(self.vehicle_save_name_buffer[0..9], "vehicle_1");
 
         var tool_manager = ToolManager.create(context.allocator, .{
-            //.allocator = context.allocator,
             .vehicle_defs = &self.vehicle_defs,
             .world = &self.world,
-            .renderer2D = self.renderer,
+            .renderer2D = &self.renderer,
         });
 
         try tool_manager.register(GroundEditTool.getVTable());
         try tool_manager.register(VehicleEditTool.getVTable());
         self.tool_manager = tool_manager;
+
+        // -----------
+        if (true) {
+            importWorld(&self.world, context.save_manager, context.allocator, "world_1") catch |e| {
+                std.log.err("import world: {any}", .{e});
+            };
+            importVehicle(&self.world, context.save_manager, context.allocator, &self.vehicle_defs, "vehicle_2") catch |e| {
+                std.log.err("import vehicle: {any}", .{e});
+            };
+
+            self.world.createPlayer(vec2.init(0, 0));
+        }
+        // -----------
+        self.enterPlayMode();
+        // -----------
 
         return self;
     }
@@ -127,7 +138,8 @@ const GameScene = struct {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
         self.tool_manager.destroy();
-        self.renderer.free();
+        self.world_renderer.deinit();
+        self.renderer.deinit();
         self.world.free();
         self.vehicle_defs.free();
 
@@ -136,6 +148,17 @@ const GameScene = struct {
 
     fn update(self_ptr: *anyopaque, context: *const engine.UpdateContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
+
+        // change mode?
+        if (context.input_state.consumeKeyDownEvent(.F1)) {
+            self.enterPlayMode();
+        }
+        if (context.input_state.consumeKeyDownEvent(.F2)) {
+            self.enterEditMode();
+        }
+        if (context.input_state.consumeKeyDownEvent(.tab)) { // TODO tab does not work sometimes?
+            self.toggleMasterMode();
+        }
 
         // TODO only set when changed?
         self.camera.setViewportSize(context.viewport_size);
@@ -148,36 +171,23 @@ const GameScene = struct {
 
         // update physics
         // TODO figure out optimal order of things
-        self.player.update(context.dt, context.input_state, mouse_position, self.master_mode == .ControlPlayer);
-        self.world.update(context.dt, context.per_frame_allocator, context.input_state, self.renderer);
+        if (self.world.players.items.len > 0) {
+            const player: *Player = &self.world.players.items[0];
+            player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play);
+        }
 
-        switch (self.master_mode) {
-            .Idle => {
-                // data.selection = .None;
-                // data.moving_selected = false;
-            },
+        self.world.update(context.dt, context.per_frame_allocator, context.input_state, &self.renderer);
 
-            .ControlPlayer => {
-                //
-            },
+        if (self.world.players.items.len > 0) {
+            const player: *Player = &self.world.players.items[0];
+            if (self.master_mode == .Play) {
+                const t = player.getTransform();
+                const p = t.pos;
 
-            .CreateBox => {
-                var spawn = false;
-
-                if (context.input_state.getKeyState(.left_shift)) {
-                    if (context.input_state.getMouseButtonState(.left)) {
-                        spawn = true;
-                    }
-                } else {
-                    if (context.input_state.consumeMouseButtonDownEvent(.left)) {
-                        spawn = true;
-                    }
-                }
-
-                if (spawn) {
-                    self.world.createDynamicBox(mouse_position);
-                }
-            },
+                self.camera.setFocusPosition(p);
+            } else {
+                self.camera.setFocusPosition(vec2.zero);
+            }
         }
 
         // tool
@@ -222,14 +232,16 @@ const GameScene = struct {
     fn render(self_ptr: *anyopaque, context: *const engine.RenderContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
+        _ = context;
+
         // mouse
         //self.renderer.addPointWithPixelSize(self.mouse_position, 10.0, Color.green);
 
         // physics
         b2.b2World_Draw(self.world.world_id, &self.zbox_renderer.b2_debug_draw);
 
-        // player
-        self.player.render(context.dt, self.renderer);
+        // world
+        self.world_renderer.render(&self.world, &self.camera);
 
         // tool
         self.tool_manager.render(.{});
@@ -251,8 +263,6 @@ const GameScene = struct {
             zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
 
             if (zgui.button("clear", .{})) {
-                self.master_mode = .Idle;
-
                 self.world.clear();
             }
 
@@ -267,8 +277,6 @@ const GameScene = struct {
                 };
             }
             if (zgui.button("import world", .{})) {
-                self.master_mode = .Idle;
-
                 const s = getSliceFromSentinelArray(&self.world_save_name_buffer);
                 importWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
                     std.log.err("import world: {any}", .{e});
@@ -280,8 +288,6 @@ const GameScene = struct {
             });
 
             if (zgui.button("import vehicle", .{})) {
-                self.master_mode = .Idle;
-
                 const s = getSliceFromSentinelArray(&self.vehicle_save_name_buffer);
                 importVehicle(&self.world, context.save_manager, context.per_frame_allocator, &self.vehicle_defs, s) catch |e| {
                     std.log.err("import vehicle: {any}", .{e});
@@ -368,6 +374,34 @@ const GameScene = struct {
 
             zgui.end();
         }
+    }
+
+    fn toggleMasterMode(self: *Self) void {
+        switch (self.master_mode) {
+            .Edit => {
+                self.enterPlayMode();
+            },
+            .Play => {
+                self.enterEditMode();
+            },
+        }
+    }
+
+    fn enterPlayMode(self: *Self) void {
+        std.log.info("entering play mode", .{});
+
+        self.master_mode = .Play;
+
+        self.tool_manager.deselect();
+        self.camera.reset();
+    }
+
+    fn enterEditMode(self: *Self) void {
+        std.log.info("entering edit mode", .{});
+
+        self.master_mode = .Edit;
+
+        self.camera.reset();
     }
 
     fn getSliceFromSentinelArray(a: [*:0]const u8) []const u8 {

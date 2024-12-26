@@ -13,5 +13,7 @@
         .zmath = .{ .path = "libs/zmath" },
         .zgui = .{ .path = "libs/zgui" },
         .zbox = .{ .path = "libs/zbox" },
+        .zstbi = .{ .path = "libs/zstbi" },
+        .zearcut = .{ .path = "libs/zearcut" },
     },
 }

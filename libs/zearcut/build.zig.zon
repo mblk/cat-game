@@ -1,0 +1,9 @@
+.{
+    .name = "zearcut",
+    .version = "0.0.1-dev",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

@@ -6,7 +6,9 @@ libs/zglfw/
 libs/zgui/
 libs/zmath/
 libs/zopengl/
+libs/zstbi/
 
 libs/zbox/libs/
+libs/zearcut/libs/
 
 imgui.ini

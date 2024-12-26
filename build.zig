@@ -28,9 +28,13 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("zgui", zgui.module("root"));
     exe.linkLibrary(zgui.artifact("imgui"));
 
-    // const box2d = b.dependency("box2d", .{});
-    // exe.root_module.addImport("box2d", box2d.module("root"));
-    // exe.linkLibrary(box2d.artifact("box2d"));
+    const zstbi = b.dependency("zstbi", .{});
+    exe.root_module.addImport("zstbi", zstbi.module("root"));
+    exe.linkLibrary(zstbi.artifact("zstbi"));
+
+    const zearcut = b.dependency("zearcut", .{});
+    exe.root_module.addImport("zearcut", zearcut.module("root"));
+    exe.linkLibrary(zearcut.artifact("earcut"));
 
     const zbox = b.dependency("zbox", .{});
     exe.root_module.addImport("zbox", zbox.module("root"));
