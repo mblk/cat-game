@@ -12,7 +12,7 @@ pub const SaveManager = struct {
     vehicles_dir_path: []const u8,
 
     pub fn create(allocator: std.mem.Allocator) !SaveManager {
-        const save_dir_path: []u8 = try std.fs.cwd().realpathAlloc(allocator, "saves");
+        const save_dir_path: []u8 = try std.fs.cwd().realpathAlloc(allocator, "saves"); // TODO not working correctly i think (at least on windows)
         std.log.info("save dir: {s}", .{save_dir_path});
         try createDirIfItDoesNotExist(save_dir_path);
 
@@ -64,16 +64,20 @@ pub const SaveManager = struct {
         dir.close();
     }
 
+    fn getSaveBaseDirPath(self: *SaveManager, save_type: SaveType) []const u8 {
+        return switch (save_type) {
+            .WorldExport => self.worlds_dir_path,
+            .VehicleExport => self.vehicles_dir_path,
+        };
+    }
+
     fn getSaveFilePath(
         self: *SaveManager,
         save_type: SaveType,
         save_name: []const u8,
         allocator: std.mem.Allocator,
     ) ![]const u8 {
-        const base_path: []const u8 = switch (save_type) {
-            .WorldExport => self.worlds_dir_path,
-            .VehicleExport => self.vehicles_dir_path,
-        };
+        const base_path = self.getSaveBaseDirPath(save_type);
 
         const save_file_path = try std.fs.path.join(allocator, &.{ base_path, save_name });
 
@@ -113,5 +117,65 @@ pub const SaveManager = struct {
         const data = try file.readToEndAlloc(allocator, file_size);
 
         return data; // must be freed by caller
+    }
+
+    pub const SaveInfos = struct {
+        const Self = @This();
+
+        allocator: std.mem.Allocator,
+        entries: []const SaveInfoEntry,
+
+        pub fn deinit(self: Self) void {
+            for (self.entries) |entry| {
+                self.allocator.free(entry.name);
+            }
+            self.allocator.free(self.entries);
+        }
+    };
+
+    pub const SaveInfoEntry = struct {
+        name: []const u8,
+        size: u64,
+
+        // nanoseconds, relative to UTC 1970-01-01.
+        atime: i128, // last access
+        mtime: i128, // last modification
+        ctime: i128, // last status/metadata change
+    };
+
+    pub fn getSaveInfos(
+        self: *SaveManager,
+        save_type: SaveType,
+        allocator: std.mem.Allocator,
+    ) !SaveInfos {
+        const base_path = self.getSaveBaseDirPath(save_type);
+        std.log.info("getting save infos from {s}", .{base_path});
+
+        const dir = try std.fs.openDirAbsolute(base_path, .{ .iterate = true });
+        var iter = dir.iterate();
+
+        var entries = std.ArrayList(SaveInfoEntry).init(allocator);
+        defer entries.deinit();
+
+        while (try iter.next()) |file| {
+            std.log.info("iter {any} {s}", .{ file.kind, file.name });
+
+            if (file.kind != .file) continue;
+
+            const file_stat = try dir.statFile(file.name);
+
+            try entries.append(SaveInfoEntry{
+                .name = try allocator.dupe(u8, file.name),
+                .size = file_stat.size,
+                .atime = file_stat.atime,
+                .mtime = file_stat.mtime,
+                .ctime = file_stat.ctime,
+            });
+        }
+
+        return SaveInfos{
+            .allocator = allocator,
+            .entries = try entries.toOwnedSlice(),
+        };
     }
 };

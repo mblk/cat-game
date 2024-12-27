@@ -31,6 +31,9 @@ const VehicleEditTool = @import("../game/tools/vehicle_edit_tool.zig").VehicleEd
 
 const WorldRenderer = @import("../game/renderer/world_renderer.zig").WorldRenderer;
 
+const ImportWorldDialog = @import("../game/ui/editor/import_world_dialog.zig").ImportWorldDialog;
+const ExportWorldDialog = @import("../game/ui/editor/export_world_dialog.zig").ExportWorldDialog;
+
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
         .name = "game",
@@ -55,7 +58,6 @@ const GameScene = struct {
 
     // state
     world: World,
-    //player: Player,
 
     // visual
     camera: engine.Camera,
@@ -72,11 +74,14 @@ const GameScene = struct {
 
     moving_camera: bool = false,
 
-    world_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
-    vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
-
     // tools
     tool_manager: ToolManager,
+
+    // editor ui
+    import_world_dialog: ImportWorldDialog = undefined,
+    export_world_dialog: ExportWorldDialog = undefined,
+
+    vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
         // TODO correct error handling (eg. errdefer)
@@ -103,7 +108,7 @@ const GameScene = struct {
         self.zbox_renderer.init(&self.renderer);
         try self.world_renderer.init(&self.renderer);
 
-        @memcpy(self.world_save_name_buffer[0..7], "world_1");
+        //@memcpy(self.world_save_name_buffer[0..7], "world_1");
         @memcpy(self.vehicle_save_name_buffer[0..9], "vehicle_1");
 
         var tool_manager = ToolManager.create(context.allocator, .{
@@ -115,6 +120,9 @@ const GameScene = struct {
         try tool_manager.register(GroundEditTool.getVTable());
         try tool_manager.register(VehicleEditTool.getVTable());
         self.tool_manager = tool_manager;
+
+        self.import_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
+        self.export_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
 
         // -----------
         if (true) {
@@ -128,7 +136,8 @@ const GameScene = struct {
             self.world.createPlayer(vec2.init(0, 0));
         }
         // -----------
-        self.enterPlayMode();
+        //self.enterPlayMode();
+        self.enterEditMode();
         // -----------
 
         return self;
@@ -136,6 +145,9 @@ const GameScene = struct {
 
     fn unload(self_ptr: *anyopaque, context: *const engine.UnloadContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
+
+        self.import_world_dialog.deinit();
+        self.export_world_dialog.deinit();
 
         self.tool_manager.destroy();
         self.world_renderer.deinit();
@@ -160,7 +172,7 @@ const GameScene = struct {
             self.toggleMasterMode();
         }
 
-        // TODO only set when changed?
+        // TODO only set if changed?
         self.camera.setViewportSize(context.viewport_size);
 
         // convert screen coords to world coords
@@ -256,32 +268,87 @@ const GameScene = struct {
         self.renderer.render_to_zgui(&self.camera);
         // xxx
 
+        if (self.master_mode == .Edit) {
+            self.drawEditUi(context);
+        }
+    }
+
+    fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {
+        // Note: "End and EndChild are special and must be called even if Begin{,Child} returns false."
+
+        var buffer: [128]u8 = undefined;
+
+        var show_import_world_dialog = false;
+        var show_export_world_dialog = false;
+
+        if (zgui.beginMainMenuBar()) {
+            if (zgui.beginMenu("File", true)) {
+                if (zgui.menuItem("New world", .{})) {
+                    self.world.clear();
+                }
+                if (zgui.menuItem("Import world...", .{})) {
+                    show_import_world_dialog = true;
+                }
+                if (zgui.menuItem("Export world...", .{})) {
+                    show_export_world_dialog = true;
+                }
+
+                zgui.separator();
+
+                if (zgui.menuItem("Exit editor", .{})) {
+                    self.enterPlayMode();
+                }
+
+                zgui.endMenu();
+            }
+
+            if (zgui.beginMenu("Tools", true)) {
+                if (zgui.menuItem("Tool: ---", .{ .selected = self.tool_manager.active_tool == null })) {
+                    self.tool_manager.deselect();
+                }
+
+                for (self.tool_manager.all_tools.items) |tool_vtable| {
+                    const b = std.fmt.bufPrintZ(&buffer, "Tool: {s}", .{tool_vtable.name}) catch unreachable;
+
+                    var sel = false;
+                    if (self.tool_manager.active_tool) |tool| {
+                        if (std.meta.eql(tool.vtable.name, tool_vtable.name)) {
+                            sel = true;
+                        }
+                    }
+
+                    if (zgui.menuItem(b, .{ .selected = sel })) {
+                        self.tool_manager.select(tool_vtable);
+                    }
+                }
+
+                zgui.endMenu();
+            }
+
+            zgui.endMainMenuBar();
+        }
+
+        if (show_import_world_dialog) {
+            self.import_world_dialog.open() catch |e| {
+                std.log.err("open dialog: {any}", .{e});
+            };
+        }
+
+        if (show_export_world_dialog) {
+            self.export_world_dialog.open() catch |e| {
+                std.log.err("open dialog: {any}", .{e});
+            };
+        }
+
+        self.import_world_dialog.drawUi();
+        self.export_world_dialog.drawUi();
+
+        // ...
         zgui.setNextWindowPos(.{ .x = 10.0, .y = 400.0, .cond = .appearing });
         //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
-        if (zgui.begin("Game", .{})) {
+        if (zgui.begin("Editor", .{})) {
             zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
-
-            if (zgui.button("clear", .{})) {
-                self.world.clear();
-            }
-
-            _ = zgui.inputText("world save name", .{
-                .buf = &self.world_save_name_buffer,
-            });
-
-            if (zgui.button("export world", .{})) {
-                const s = getSliceFromSentinelArray(&self.world_save_name_buffer);
-                exportWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
-                    std.log.err("export world: {any}", .{e});
-                };
-            }
-            if (zgui.button("import world", .{})) {
-                const s = getSliceFromSentinelArray(&self.world_save_name_buffer);
-                importWorld(&self.world, context.save_manager, context.per_frame_allocator, s) catch |e| {
-                    std.log.err("import world: {any}", .{e});
-                };
-            }
 
             _ = zgui.inputText("vehicle save name", .{
                 .buf = &self.vehicle_save_name_buffer,
@@ -298,43 +365,9 @@ const GameScene = struct {
             // tools
             //
 
-            zgui.separator();
-
-            if (self.tool_manager.active_tool) |tool| {
-                zgui.text("tool: {s}", .{tool.vtable.name});
-            } else {
-                zgui.text("tool: ---", .{});
-            }
-
-            if (zgui.button("tool: ---", .{})) {
-                self.tool_manager.deselect();
-            }
-
-            var buffer: [128]u8 = undefined;
-            for (self.tool_manager.all_tools.items) |tool_vtable| {
-                const b = std.fmt.bufPrintZ(&buffer, "tool: {s}", .{tool_vtable.name}) catch unreachable;
-                if (zgui.button(b, .{})) {
-                    self.tool_manager.select(tool_vtable);
-                }
-            }
-
             self.tool_manager.drawUi(.{
                 .input = context.input_state,
             });
-
-            //
-            // master mode
-            //
-            zgui.separator();
-            zgui.text("master mode: {s}", .{@tagName(self.master_mode)});
-
-            inline for (@typeInfo(MasterMode).@"enum".fields) |field| {
-                const enumValue = @field(MasterMode, field.name);
-
-                if (zgui.radioButton(field.name, .{ .active = self.master_mode == enumValue })) {
-                    self.master_mode = enumValue;
-                }
-            }
 
             //
             // physics
@@ -371,9 +404,8 @@ const GameScene = struct {
                     zgui.popId();
                 }
             }
-
-            zgui.end();
         }
+        zgui.end();
     }
 
     fn toggleMasterMode(self: *Self) void {
@@ -399,9 +431,13 @@ const GameScene = struct {
     fn enterEditMode(self: *Self) void {
         std.log.info("entering edit mode", .{});
 
+        // keep camera where it is
+        const cam_pos = self.camera.focus_position.add(self.camera.offset);
+
         self.master_mode = .Edit;
 
         self.camera.reset();
+        self.camera.offset = cam_pos;
     }
 
     fn getSliceFromSentinelArray(a: [*:0]const u8) []const u8 {
@@ -411,15 +447,6 @@ const GameScene = struct {
         std.debug.assert(std.mem.indexOfScalar(u8, s, 0) == null); // no 0 character in string
 
         return s;
-    }
-
-    fn exportWorld(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
-        const data = try WorldExporter.exportWorld(world, temp_allocator);
-        defer temp_allocator.free(data);
-
-        //std.log.info("world data: {s}", .{data});
-
-        try save_manager.save(.WorldExport, name, data, temp_allocator);
     }
 
     fn importWorld(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {

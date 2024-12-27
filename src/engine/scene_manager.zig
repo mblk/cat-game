@@ -38,6 +38,7 @@ pub const Scene = struct {
 
 pub const LoadContext = struct {
     allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
     content_manager: *ContentManager,
     save_manager: *SaveManager,
 };
@@ -162,6 +163,7 @@ pub const SceneManager = struct {
 
         const load_context = LoadContext{
             .allocator = self.allocator,
+            .per_frame_allocator = self.per_frame_allocator,
             .content_manager = self.content_manager,
             .save_manager = self.save_manager,
         };
@@ -285,7 +287,7 @@ pub const SceneManager = struct {
     }
 
     fn drawDebugUi(self: *SceneManager, dt: f32, command_buffer: *SceneCommandBuffer) void {
-        zgui.setNextWindowPos(.{ .x = 10.0, .y = 10.0, .cond = .appearing });
+        zgui.setNextWindowPos(.{ .x = 10.0, .y = 50.0, .cond = .appearing });
         //zgui.setNextWindowSize(.{ .w = 200, .h = 600 });
 
         if (zgui.begin("Debug", .{})) {
