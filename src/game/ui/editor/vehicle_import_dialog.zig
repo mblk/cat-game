@@ -4,12 +4,14 @@ const zgui = @import("zgui");
 const engine = @import("../../../engine/engine.zig");
 
 const World = @import("../../world.zig").World;
+const VehicleRef = @import("../../world.zig").VehicleRef;
 const Vehicle = @import("../../vehicle.zig").Vehicle;
 const VehicleDefs = @import("../../vehicle.zig").VehicleDefs;
 const VehicleImporter = @import("../../vehicle_export.zig").VehicleImporter;
 
 const formatter = @import("../../../utils/formatter.zig");
 const ui_utils = @import("../../../utils/ui_utils.zig");
+const Callback = @import("../../../utils/callback.zig").Callback;
 
 pub const VehicleImportDialog = struct {
     const Self = @This();
@@ -25,6 +27,11 @@ pub const VehicleImportDialog = struct {
 
     save_infos: ?engine.SaveManager.SaveInfos = null,
     selected_index: ?usize = null,
+
+    // after_import_cb: ?*const fn (VehicleRef, *anyopaque) void = null,
+    // after_ompirt_cb_context: ?*anyopaque = null,
+
+    after_import: ?Callback(VehicleRef) = null,
 
     pub fn init(
         self: *Self,
@@ -161,6 +168,10 @@ pub const VehicleImportDialog = struct {
         defer self.per_frame_allocator.free(data);
         std.log.info("world data: {s}", .{data});
 
-        try VehicleImporter.importVehicle(self.world, data, self.per_frame_allocator, self.vehicle_defs);
+        const vehicle_ref = try VehicleImporter.importVehicle(self.world, data, self.per_frame_allocator, self.vehicle_defs);
+
+        if (self.after_import) |cb| {
+            cb.function(vehicle_ref, cb.context);
+        }
     }
 };

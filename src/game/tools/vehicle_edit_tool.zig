@@ -46,13 +46,13 @@ const Mode = union(enum) {
         vehicle_ref: VehicleRef,
         moving: bool,
     },
-    // ?
+    PlaceImportedVehicle: VehicleRef,
 };
 
 pub const VehicleEditTool = struct {
     const Self = VehicleEditTool;
 
-    self_allocator: std.mem.Allocator, // TODO not sure
+    self_allocator: std.mem.Allocator, // TODO not sure, same as long-term-alloc?
     long_term_allocator: std.mem.Allocator,
     per_frame_allocator: std.mem.Allocator,
 
@@ -63,9 +63,8 @@ pub const VehicleEditTool = struct {
     world: *World,
     vehicle_defs: *const VehicleDefs,
 
+    // state
     mode: Mode = .Idle,
-
-    vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
 
     // ui
     vehicle_export_dialog: VehicleExportDialog = undefined,
@@ -99,7 +98,22 @@ pub const VehicleEditTool = struct {
         self.vehicle_export_dialog.init(deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
         self.vehicle_import_dialog.init(deps.world, deps.vehicle_defs, deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
 
+        self.vehicle_import_dialog.after_import = .{
+            .function = afterVehicleImport,
+            .context = self,
+        };
+
         return self;
+    }
+
+    fn afterVehicleImport(vehicle_ref: VehicleRef, context: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(context));
+
+        std.log.info("after vehilce imported {any}", .{vehicle_ref});
+
+        self.mode = .{
+            .PlaceImportedVehicle = vehicle_ref,
+        };
     }
 
     fn destroy(self_ptr: *anyopaque) void {
@@ -153,10 +167,6 @@ pub const VehicleEditTool = struct {
 
         const max_select_distance: f32 = 10.0;
         const max_build_distance: f32 = 5.0;
-
-        if (self.mode != .Idle and input.consumeMouseButtonDownEvent(.right)) {
-            self.mode = .Idle;
-        }
 
         switch (self.mode) {
             .Idle => {
@@ -319,6 +329,35 @@ pub const VehicleEditTool = struct {
                     }
                 }
             },
+            .PlaceImportedVehicle => |vehicle_ref| {
+                if (self.world.getVehicle(vehicle_ref)) |vehicle| {
+                    var transform = b2.b2Body_GetTransform(vehicle.body_id);
+                    transform.p = mouse_position.to_b2();
+
+                    if (input.consumeMouseScroll()) |scroll| {
+                        var angle = b2.b2Rot_GetAngle(transform.q);
+                        angle += @as(f32, @floatFromInt(scroll)) * std.math.degreesToRadians(10.0);
+                        transform.q = b2.b2MakeRot(angle);
+                    }
+
+                    b2.b2Body_SetType(vehicle.body_id, b2.b2_kinematicBody);
+                    b2.b2Body_SetTransform(vehicle.body_id, transform.p, transform.q);
+
+                    if (input.consumeMouseButtonDownEvent(.left)) {
+                        b2.b2Body_SetType(vehicle.body_id, b2.b2_dynamicBody);
+                        self.mode = .Idle;
+                    } else if (input.consumeMouseButtonDownEvent(.right)) {
+                        b2.b2Body_SetType(vehicle.body_id, b2.b2_dynamicBody);
+                        vehicle.destroy();
+                        self.mode = .Idle;
+                    }
+                }
+            },
+        }
+
+        // general abort via right click?
+        if (self.mode != .Idle and input.consumeMouseButtonDownEvent(.right)) {
+            self.mode = .Idle;
         }
     }
 
@@ -582,6 +621,9 @@ pub const VehicleEditTool = struct {
                     zgui.text("CoM: {d:.2} {d:.2}", .{ mass_data.center.x, mass_data.center.y });
                 }
             },
+            .PlaceImportedVehicle => |vehicle_ref| {
+                zgui.text("place imported {s}", .{vehicle_ref});
+            },
         }
     }
 
@@ -606,7 +648,6 @@ pub const VehicleEditTool = struct {
 
         zgui.separator();
 
-        //
         for (self.world.vehicles.items, 0..) |*vehicle, vehicle_index| {
             zgui.pushPtrId(vehicle);
 

@@ -7,6 +7,7 @@ const zbox = @import("zbox");
 const b2 = zbox.API;
 
 const World = @import("world.zig").World;
+const VehicleRef = @import("world.zig").VehicleRef;
 
 const VehicleDefs = @import("vehicle.zig").VehicleDefs;
 const Vehicle = @import("vehicle.zig").Vehicle;
@@ -123,7 +124,7 @@ pub const VehicleExporter = struct {
 };
 
 pub const VehicleImporter = struct {
-    pub fn importVehicle(world: *World, data: []const u8, allocator: std.mem.Allocator, vehicle_defs: *const VehicleDefs) !void {
+    pub fn importVehicle(world: *World, data: []const u8, allocator: std.mem.Allocator, vehicle_defs: *const VehicleDefs) !VehicleRef {
 
         // parse json
         const parsed = try std.json.parseFromSlice(
@@ -169,5 +170,7 @@ pub const VehicleImporter = struct {
                 }
             }
         }
+
+        return vehicle_ref;
     }
 };

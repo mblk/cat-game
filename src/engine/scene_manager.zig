@@ -36,6 +36,11 @@ pub const Scene = struct {
 //   - per world
 //   - per game (ie. global)
 
+// TODO so wie bei den Tools?
+// pub const SceneDeps = struct {
+//     //
+// };
+
 pub const LoadContext = struct {
     allocator: std.mem.Allocator,
     per_frame_allocator: std.mem.Allocator,

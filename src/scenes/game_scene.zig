@@ -45,9 +45,9 @@ pub fn getScene() engine.SceneDescriptor {
     };
 }
 
-// TODO:
-// - ground edit tool: window, segment list, etc
-// - vehicle edit tool: window, vehicle list, etc
+//////////
+// TODO //
+//////////
 //
 // world:
 // - start+finish positions
@@ -429,6 +429,6 @@ const GameScene = struct {
 
         //std.log.info("vehicle data: {s}", .{data});
 
-        try VehicleImporter.importVehicle(world, data, temp_allocator, vehicle_defs);
+        _ = try VehicleImporter.importVehicle(world, data, temp_allocator, vehicle_defs);
     }
 };
