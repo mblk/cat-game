@@ -31,8 +31,8 @@ const VehicleEditTool = @import("../game/tools/vehicle_edit_tool.zig").VehicleEd
 
 const WorldRenderer = @import("../game/renderer/world_renderer.zig").WorldRenderer;
 
-const ImportWorldDialog = @import("../game/ui/editor/import_world_dialog.zig").ImportWorldDialog;
-const ExportWorldDialog = @import("../game/ui/editor/export_world_dialog.zig").ExportWorldDialog;
+const WorldImportDialog = @import("../game/ui/editor/world_import_dialog.zig").WorldImportDialog;
+const WorldExportDialog = @import("../game/ui/editor/world_export_dialog.zig").WorldExportDialog;
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
@@ -44,6 +44,19 @@ pub fn getScene() engine.SceneDescriptor {
         .draw_ui = GameScene.drawUi,
     };
 }
+
+// TODO:
+// - ground edit tool: window, segment list, etc
+// - vehicle edit tool: window, vehicle list, etc
+//
+// world:
+// - start+finish positions
+// - change world size (and maybe other settings like gravity?)
+//
+// - food/treat/snack positions
+//
+// - debris from destroyable things?
+//
 
 const GameScene = struct {
     const Self = GameScene;
@@ -78,8 +91,8 @@ const GameScene = struct {
     tool_manager: ToolManager,
 
     // editor ui
-    import_world_dialog: ImportWorldDialog = undefined,
-    export_world_dialog: ExportWorldDialog = undefined,
+    import_world_dialog: WorldImportDialog = undefined,
+    export_world_dialog: WorldExportDialog = undefined,
 
     vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
 
@@ -112,9 +125,13 @@ const GameScene = struct {
         @memcpy(self.vehicle_save_name_buffer[0..9], "vehicle_1");
 
         var tool_manager = ToolManager.create(context.allocator, .{
+            .long_term_allocator = context.allocator,
+            .per_frame_allocator = context.per_frame_allocator,
+            .save_manager = context.save_manager,
+            .renderer2D = &self.renderer,
+            .camera = &self.camera,
             .vehicle_defs = &self.vehicle_defs,
             .world = &self.world,
-            .renderer2D = &self.renderer,
         });
 
         try tool_manager.register(GroundEditTool.getVTable());
@@ -218,10 +235,10 @@ const GameScene = struct {
             self.camera.reset();
         }
 
-        if (context.input_state.getKeyState(.left)) self.camera.changePosition(vec2.init(-100.0 * context.dt, 0.0));
-        if (context.input_state.getKeyState(.right)) self.camera.changePosition(vec2.init(100.0 * context.dt, 0.0));
-        if (context.input_state.getKeyState(.up)) self.camera.changePosition(vec2.init(0.0, 100.0 * context.dt));
-        if (context.input_state.getKeyState(.down)) self.camera.changePosition(vec2.init(0.0, -100.0 * context.dt));
+        if (context.input_state.getKeyState(.left)) self.camera.changeOffset(vec2.init(-100.0 * context.dt, 0.0));
+        if (context.input_state.getKeyState(.right)) self.camera.changeOffset(vec2.init(100.0 * context.dt, 0.0));
+        if (context.input_state.getKeyState(.up)) self.camera.changeOffset(vec2.init(0.0, 100.0 * context.dt));
+        if (context.input_state.getKeyState(.down)) self.camera.changeOffset(vec2.init(0.0, -100.0 * context.dt));
 
         // pan camera?
         if (!self.moving_camera and context.input_state.consumeMouseButtonDownEvent(.right)) {
@@ -229,7 +246,7 @@ const GameScene = struct {
         } else if (self.moving_camera and !context.input_state.getMouseButtonState(.right)) {
             self.moving_camera = false;
         } else if (self.moving_camera) {
-            self.camera.changePosition(self.mouse_diff.neg());
+            self.camera.changeOffset(self.mouse_diff.neg());
         }
 
         // must update after camera has moved
@@ -343,69 +360,26 @@ const GameScene = struct {
         self.import_world_dialog.drawUi();
         self.export_world_dialog.drawUi();
 
+        self.tool_manager.drawUi(.{
+            .input = context.input_state,
+        });
+
         // ...
-        zgui.setNextWindowPos(.{ .x = 10.0, .y = 400.0, .cond = .appearing });
-        //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
+        // zgui.setNextWindowPos(.{ .x = 10.0, .y = 400.0, .cond = .appearing });
+        // //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
-        if (zgui.begin("Editor", .{})) {
-            zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
+        // if (zgui.begin("Editor", .{})) {
+        //     zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
 
-            _ = zgui.inputText("vehicle save name", .{
-                .buf = &self.vehicle_save_name_buffer,
-            });
+        //     //
+        //     // physics
+        //     //
 
-            if (zgui.button("import vehicle", .{})) {
-                const s = getSliceFromSentinelArray(&self.vehicle_save_name_buffer);
-                importVehicle(&self.world, context.save_manager, context.per_frame_allocator, &self.vehicle_defs, s) catch |e| {
-                    std.log.err("import vehicle: {any}", .{e});
-                };
-            }
-
-            //
-            // tools
-            //
-
-            self.tool_manager.drawUi(.{
-                .input = context.input_state,
-            });
-
-            //
-            // physics
-            //
-
-            if (zgui.collapsingHeader("physics", .{})) {
-                self.zbox_renderer.drawUi();
-            }
-
-            //
-            // vehicles
-            //
-
-            if (zgui.collapsingHeader("vehicles", .{})) {
-                for (self.world.vehicles.items) |*vehicle| {
-                    zgui.pushPtrId(vehicle);
-                    zgui.text("vehicle alive={} blocks={d}", .{ vehicle.alive, vehicle.blocks.items.len });
-
-                    // arraylist only valid if alive
-                    if (vehicle.alive) {
-                        if (zgui.button("export", .{})) {
-                            const s = getSliceFromSentinelArray(&self.vehicle_save_name_buffer);
-
-                            exportVehicle(vehicle, context.save_manager, context.per_frame_allocator, s) catch |e| {
-                                std.log.err("export vehicle: {any}", .{e});
-                            };
-                        }
-
-                        for (vehicle.blocks.items) |block| {
-                            zgui.text("  block alive={} def={s} pos={d} {d}", .{ block.alive, block.def.id, block.local_position.x, block.local_position.y });
-                        }
-                    }
-
-                    zgui.popId();
-                }
-            }
-        }
-        zgui.end();
+        //     if (zgui.collapsingHeader("physics", .{})) {
+        //         self.zbox_renderer.drawUi();
+        //     }
+        // }
+        // zgui.end();
     }
 
     fn toggleMasterMode(self: *Self) void {
@@ -440,15 +414,6 @@ const GameScene = struct {
         self.camera.offset = cam_pos;
     }
 
-    fn getSliceFromSentinelArray(a: [*:0]const u8) []const u8 {
-        //const ptr_to_string: [*:0]const u8 = a;
-        const len = std.mem.len(a);
-        const s: []const u8 = a[0..len];
-        std.debug.assert(std.mem.indexOfScalar(u8, s, 0) == null); // no 0 character in string
-
-        return s;
-    }
-
     fn importWorld(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
         const data = try save_manager.load(.WorldExport, name, temp_allocator);
         defer temp_allocator.free(data);
@@ -458,20 +423,11 @@ const GameScene = struct {
         try WorldImporter.importWorld(world, data, temp_allocator);
     }
 
-    fn exportVehicle(vehicle: *Vehicle, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
-        const data = try VehicleExporter.exportVehicle(vehicle, temp_allocator);
-        defer temp_allocator.free(data);
-
-        std.log.info("vehicle data: {s}", .{data});
-
-        try save_manager.save(.VehicleExport, name, data, temp_allocator);
-    }
-
     fn importVehicle(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, vehicle_defs: *const VehicleDefs, name: []const u8) !void {
         const data = try save_manager.load(.VehicleExport, name, temp_allocator);
         defer temp_allocator.free(data);
 
-        std.log.info("vehicle data: {s}", .{data});
+        //std.log.info("vehicle data: {s}", .{data});
 
         try VehicleImporter.importVehicle(world, data, temp_allocator, vehicle_defs);
     }

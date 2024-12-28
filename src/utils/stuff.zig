@@ -17,11 +17,11 @@ const std = @import("std");
 //     }
 // }
 
-fn getSliceFromSentinelArray(a: [*:0]const u8) []const u8 {
-    //const ptr_to_string: [*:0]const u8 = a;
-    const len = std.mem.len(a);
-    const s: []const u8 = a[0..len];
-    std.debug.assert(std.mem.indexOfScalar(u8, s, 0) == null); // no 0 character in string
+// fn getSliceFromSentinelArray(a: [*:0]const u8) []const u8 {
+//     //const ptr_to_string: [*:0]const u8 = a;
+//     const len = std.mem.len(a);
+//     const s: []const u8 = a[0..len];
+//     std.debug.assert(std.mem.indexOfScalar(u8, s, 0) == null); // no 0 character in string
 
-    return s;
-}
+//     return s;
+// }

@@ -598,6 +598,12 @@ pub const Vehicle = struct {
         return vec2.from_b2(b2.b2InvRotateVector(transform.q, world_vector.to_b2()));
     }
 
+    pub fn getCenterOfMassWorld(self: *const Vehicle) vec2 {
+        std.debug.assert(self.alive);
+
+        return vec2.from_b2(b2.b2Body_GetWorldCenterOfMass(self.body_id));
+    }
+
     pub fn getBlock(self: *const Vehicle, ref: BlockRef) ?*Block {
         std.debug.assert(self.alive);
 

@@ -7,16 +7,19 @@ const World = @import("../../world.zig").World;
 const WorldExporter = @import("../../world_export.zig").WorldExporter;
 
 const formatter = @import("../../../utils/formatter.zig");
+const ui_utils = @import("../../../utils/ui_utils.zig");
 
-pub const ExportWorldDialog = struct {
+pub const WorldExportDialog = struct {
     const Self = @This();
     const popup_id = "Export world";
     const file_name_max_len = 16;
 
-    world: *World,
+    world: *const World,
     save_manager: *engine.SaveManager,
     long_term_allocator: std.mem.Allocator,
     per_frame_allocator: std.mem.Allocator,
+
+    should_open: bool = false,
 
     save_infos: ?engine.SaveManager.SaveInfos = null,
     selected_index: ?usize = null,
@@ -25,7 +28,7 @@ pub const ExportWorldDialog = struct {
 
     pub fn init(
         self: *Self,
-        world: *World,
+        world: *const World,
         save_manager: *engine.SaveManager,
         long_term_allocator: std.mem.Allocator,
         per_frame_allocator: std.mem.Allocator,
@@ -43,13 +46,18 @@ pub const ExportWorldDialog = struct {
     }
 
     pub fn open(self: *Self) !void {
-        self.save_infos = try self.save_manager.getSaveInfos(.WorldExport, self.long_term_allocator);
-        @memset(&self.file_name_buffer, 0);
+        std.debug.assert(self.save_infos == null);
 
-        zgui.openPopup(Self.popup_id, .{});
+        const save_infos = try self.save_manager.getSaveInfos(.WorldExport, self.long_term_allocator);
+
+        self.save_infos = save_infos;
+        @memset(&self.file_name_buffer, 0);
+        self.should_open = true;
     }
 
     fn close(self: *Self) void {
+        std.debug.assert(self.save_infos != null);
+
         if (self.save_infos) |infos| {
             infos.deinit();
         }
@@ -62,15 +70,12 @@ pub const ExportWorldDialog = struct {
         }
         const save_infos = self.save_infos.?;
 
-        // center on screen
-        const display_size = zgui.io.getDisplaySize();
-        zgui.setNextWindowPos(.{
-            .cond = .appearing,
-            .pivot_x = 0.5,
-            .pivot_y = 0.5,
-            .x = display_size[0] * 0.5,
-            .y = display_size[1] * 0.5,
-        });
+        if (self.should_open) {
+            self.should_open = false;
+            zgui.openPopup(Self.popup_id, .{});
+        }
+
+        ui_utils.setNextWindowToCenterOfScreen();
 
         if (zgui.beginPopupModal(Self.popup_id, .{
             .flags = .{
@@ -88,7 +93,7 @@ pub const ExportWorldDialog = struct {
 
             zgui.text("Existing files:", .{});
 
-            if (zgui.beginListBox("##world_files", .{ .w = 300, .h = 300 })) {
+            if (zgui.beginListBox("##files", .{ .w = 300, .h = 300 })) {
                 for (save_infos.entries, 0..) |entry, i| {
                     const s = std.fmt.bufPrintZ(&buffer, "{s}", .{entry.name}) catch unreachable;
 
@@ -128,12 +133,8 @@ pub const ExportWorldDialog = struct {
             }
             zgui.endGroup();
 
-            const ptr: [*:0]const u8 = &self.file_name_buffer;
-            const buffer_content_len = std.mem.len(ptr);
-            const buffer_content_slice: []const u8 = self.file_name_buffer[0..buffer_content_len];
-            const trimmed_file_name = std.mem.trim(u8, buffer_content_slice, &[_]u8{ ' ', '\t', '.' });
-
-            const can_export = isValidFileName(trimmed_file_name);
+            const trimmed_file_name = ui_utils.getTrimmedTextEditString(&self.file_name_buffer);
+            const can_export = ui_utils.isValidFileName(trimmed_file_name);
 
             if (can_export) {
                 if (zgui.button("Export", .{ .w = 300, .h = 30 }) or select_via_doubleclick) {
@@ -166,25 +167,6 @@ pub const ExportWorldDialog = struct {
 
             zgui.endPopup();
         }
-    }
-
-    fn isWhitespace(c: u8) bool {
-        return switch (c) {
-            ' ', '\t', '\n', '\r' => true,
-            else => false,
-        };
-    }
-
-    fn isValidFileName(s: []const u8) bool {
-        if (s.len < 1) return false;
-
-        for (s) |c| {
-            if (!isWhitespace(c)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     fn exportWorld(self: *Self, name: []const u8) !void {

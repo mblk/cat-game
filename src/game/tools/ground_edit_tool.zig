@@ -234,6 +234,24 @@ pub const GroundEditTool = struct {
 
         _ = context;
 
+        zgui.setNextWindowPos(.{ .x = 10.0, .y = 300.0, .cond = .appearing });
+        zgui.setNextWindowSize(.{ .w = 300, .h = 600 });
+
+        if (zgui.begin("Ground segment list", .{})) {
+            self.drawListWindowContent();
+        }
+        zgui.end();
+
+        zgui.setNextWindowPos(.{ .x = 320.0, .y = 300.0, .cond = .appearing });
+        zgui.setNextWindowSize(.{ .w = 300, .h = 300 });
+
+        if (zgui.begin("Ground segment edit", .{})) {
+            self.drawEditWindowContent();
+        }
+        zgui.end();
+    }
+
+    fn drawEditWindowContent(self: *Self) void {
         switch (self.selection) {
             .None => {
                 zgui.text("selection: ---", .{});
@@ -244,6 +262,29 @@ pub const GroundEditTool = struct {
             .GroundPoint => |point_index| {
                 zgui.text("selection: seg {d} p {d}", .{ point_index.ground_segment_index, point_index.ground_point_index });
             },
+        }
+    }
+
+    fn drawListWindowContent(self: *Self) void {
+        var buffer: [128]u8 = undefined;
+
+        for (self.world.ground_segments.items, 0..) |*ground_segment, ground_segmend_index| {
+            const s = std.fmt.bufPrintZ(&buffer, "Segment {d}", .{ground_segmend_index}) catch unreachable;
+            if (zgui.collapsingHeader(s, .{})) {
+                if (zgui.button("destroy", .{})) {
+                    //
+                }
+                zgui.sameLine(.{});
+                if (zgui.button("focus", .{})) {
+                    //
+                }
+
+                zgui.text("position {any}", .{ground_segment.position});
+
+                for (ground_segment.points.items) |point| {
+                    zgui.text("point {any}", .{point});
+                }
+            }
         }
     }
 };

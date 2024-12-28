@@ -74,8 +74,13 @@ pub const Camera = struct {
         self.update();
     }
 
-    pub fn changePosition(self: *Camera, delta: vec2) void {
+    pub fn changeOffset(self: *Camera, delta: vec2) void {
         self.offset = self.offset.add(delta);
+        self.update();
+    }
+
+    pub fn setOffset(self: *Camera, position: vec2) void {
+        self.offset = position;
         self.update();
     }
 

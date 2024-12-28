@@ -14,6 +14,7 @@ const VehicleAndBlockRef = @import("../world.zig").VehicleAndBlockRef;
 const VehicleAndDeviceRef = @import("../world.zig").VehicleAndDeviceRef;
 
 const Vehicle = @import("../vehicle.zig").Vehicle;
+const VehicleDefs = @import("../vehicle.zig").VehicleDefs;
 const Block = @import("../vehicle.zig").Block;
 const BlockDef = @import("../vehicle.zig").BlockDef;
 const BlockRef = @import("../vehicle.zig").BlockRef;
@@ -27,6 +28,13 @@ const ToolDeps = tools.ToolDeps;
 const ToolUpdateContext = tools.ToolUpdateContext;
 const ToolRenderContext = tools.ToolRenderContext;
 const ToolDrawUiContext = tools.ToolDrawUiContext;
+
+const vehicle_export = @import("../vehicle_export.zig");
+const VehicleExporter = vehicle_export.VehicleExporter;
+const VehicleImporter = vehicle_export.VehicleImporter;
+
+const VehicleExportDialog = @import("../ui/editor/vehicle_export_dialog.zig").VehicleExportDialog;
+const VehicleImportDialog = @import("../ui/editor/vehicle_import_dialog.zig").VehicleImportDialog;
 
 const Mode = union(enum) {
     Idle,
@@ -44,14 +52,24 @@ const Mode = union(enum) {
 pub const VehicleEditTool = struct {
     const Self = VehicleEditTool;
 
-    allocator: std.mem.Allocator,
-    world: *World,
-    renderer2D: *engine.Renderer2D,
+    self_allocator: std.mem.Allocator, // TODO not sure
+    long_term_allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
 
-    block_defs: []BlockDef,
-    device_defs: []DeviceDef,
+    save_manager: *engine.SaveManager,
+    renderer2D: *engine.Renderer2D,
+    camera: *engine.Camera,
+
+    world: *World,
+    vehicle_defs: *const VehicleDefs,
 
     mode: Mode = .Idle,
+
+    vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
+
+    // ui
+    vehicle_export_dialog: VehicleExportDialog = undefined,
+    vehicle_import_dialog: VehicleImportDialog = undefined,
 
     pub fn getVTable() ToolVTable {
         return ToolVTable{
@@ -68,12 +86,18 @@ pub const VehicleEditTool = struct {
         const self = try allocator.create(Self);
 
         self.* = Self{
-            .allocator = allocator,
-            .world = deps.world,
+            .self_allocator = allocator,
+            .long_term_allocator = deps.long_term_allocator,
+            .per_frame_allocator = deps.per_frame_allocator,
+            .save_manager = deps.save_manager,
             .renderer2D = deps.renderer2D,
-            .block_defs = deps.vehicle_defs.blocks,
-            .device_defs = deps.vehicle_defs.devices,
+            .camera = deps.camera,
+            .world = deps.world,
+            .vehicle_defs = deps.vehicle_defs,
         };
+
+        self.vehicle_export_dialog.init(deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
+        self.vehicle_import_dialog.init(deps.world, deps.vehicle_defs, deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
 
         return self;
     }
@@ -81,7 +105,7 @@ pub const VehicleEditTool = struct {
     fn destroy(self_ptr: *anyopaque) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        self.allocator.destroy(self);
+        self.self_allocator.destroy(self);
     }
 
     const QueryData = struct {
@@ -445,20 +469,41 @@ pub const VehicleEditTool = struct {
     fn drawUi(self_ptr: *anyopaque, context: ToolDrawUiContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        //_ = context;
+        zgui.setNextWindowPos(.{ .x = 10.0, .y = 300.0, .cond = .appearing });
+        zgui.setNextWindowSize(.{ .w = 300, .h = 600 });
 
+        if (zgui.begin("Vehicle list", .{})) {
+            self.drawListWindowContent();
+        }
+        zgui.end();
+
+        zgui.setNextWindowPos(.{ .x = 320.0, .y = 300.0, .cond = .appearing });
+        zgui.setNextWindowSize(.{ .w = 300, .h = 300 });
+
+        if (zgui.begin("Vehicle edit", .{})) {
+            self.drawEditWindowContent(context);
+        }
+        zgui.end();
+
+        // dialogs
+        self.vehicle_export_dialog.drawUi();
+        self.vehicle_import_dialog.drawUi();
+    }
+
+    fn drawEditWindowContent(self: *Self, context: ToolDrawUiContext) void {
+        //
         switch (self.mode) {
             .Idle => {
                 zgui.text("create:", .{});
 
                 var buffer: [128]u8 = undefined;
-                for (self.block_defs) |block_def| {
+                for (self.vehicle_defs.blocks) |block_def| {
                     const s = std.fmt.bufPrintZ(&buffer, "block: {s}", .{block_def.id}) catch unreachable;
                     if (zgui.button(s, .{})) {
                         self.mode = .{ .CreateBlock = block_def };
                     }
                 }
-                for (self.device_defs) |device_def| {
+                for (self.vehicle_defs.devices) |device_def| {
                     const s = std.fmt.bufPrintZ(&buffer, "device: {s}", .{device_def.id}) catch unreachable;
                     if (zgui.button(s, .{})) {
                         self.mode = .{ .CreateDevice = device_def };
@@ -538,5 +583,112 @@ pub const VehicleEditTool = struct {
                 }
             },
         }
+    }
+
+    fn drawListWindowContent(self: *Self) void {
+        var buffer: [128]u8 = undefined;
+
+        if (zgui.button("import", .{})) {
+            self.vehicle_import_dialog.open() catch |e| {
+                std.log.err("open dialog: {any}", .{e});
+            };
+        }
+
+        zgui.sameLine(.{});
+
+        if (zgui.button("destroy all", .{})) {
+            for (self.world.vehicles.items) |*vehicle| {
+                if (vehicle.alive) {
+                    vehicle.destroy();
+                }
+            }
+        }
+
+        zgui.separator();
+
+        //
+        for (self.world.vehicles.items, 0..) |*vehicle, vehicle_index| {
+            zgui.pushPtrId(vehicle);
+
+            const s = std.fmt.bufPrintZ(&buffer, "Vehicle {d}", .{vehicle_index}) catch unreachable;
+
+            if (zgui.collapsingHeader(s, .{})) {
+                if (vehicle.alive and zgui.isItemHovered(.{})) {
+                    self.highlightVehicle(vehicle);
+                }
+
+                zgui.indent(.{ .indent_w = 20 });
+                zgui.text("vehicle alive={} blocks={d}", .{ vehicle.alive, vehicle.blocks.items.len });
+
+                if (vehicle.alive) {
+                    var do_focus = false;
+                    var do_export = false;
+                    var do_destroy = false;
+
+                    if (zgui.button("focus", .{})) {
+                        do_focus = true;
+                    }
+                    zgui.sameLine(.{});
+                    if (zgui.button("export", .{})) {
+                        do_export = true;
+                    }
+                    zgui.sameLine(.{});
+                    if (zgui.button("destroy", .{})) {
+                        do_destroy = true;
+                    }
+
+                    // arraylist only valid if alive
+                    if (zgui.collapsingHeader("blocks", .{})) {
+                        for (vehicle.blocks.items) |block| {
+                            zgui.text("block alive={} def={s} pos={d:.1} {d:.1}", .{ block.alive, block.def.id, block.local_position.x, block.local_position.y });
+                        }
+                    }
+                    if (zgui.collapsingHeader("devices", .{})) {
+                        for (vehicle.devices.items) |device| {
+                            zgui.text("device alive={} def={s} pos={d:.1} {d:.1}", .{ device.alive, device.def.id, device.local_position.x, device.local_position.y });
+                        }
+                    }
+
+                    if (do_focus) {
+                        self.focusVehicle(vehicle);
+                    } else if (do_export) {
+                        self.vehicle_export_dialog.open(vehicle) catch |e| {
+                            std.log.err("open dialog: {any}", .{e});
+                        };
+                    } else if (do_destroy) {
+                        vehicle.destroy();
+                    }
+                }
+
+                zgui.indent(.{ .indent_w = -20 });
+            } else {
+                if (vehicle.alive and zgui.isItemHovered(.{})) {
+                    self.highlightVehicle(vehicle);
+                }
+            }
+
+            zgui.popId();
+        }
+    }
+
+    fn highlightVehicle(self: *Self, vehicle: *const Vehicle) void {
+        std.debug.assert(vehicle.alive);
+
+        const mouse_pos_screen = zgui.getMousePos();
+        const mouse_pos_world = self.camera.screenToWorld(mouse_pos_screen);
+
+        const vehicle_com_world = vehicle.getCenterOfMassWorld();
+
+        self.renderer2D.addCircle(vehicle_com_world, 1.0, Color.red);
+        self.renderer2D.addLine(mouse_pos_world, vehicle_com_world, Color.red);
+    }
+
+    fn focusVehicle(self: *Self, vehicle: *const Vehicle) void {
+        std.debug.assert(vehicle.alive);
+
+        const vehicle_com_world = vehicle.getCenterOfMassWorld();
+
+        self.camera.setFocusPosition(vec2.zero);
+        self.camera.setOffset(vehicle_com_world);
     }
 };

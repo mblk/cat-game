@@ -41,7 +41,7 @@ const DeviceData = struct {
 };
 
 pub const VehicleExporter = struct {
-    pub fn exportVehicle(vehicle: *Vehicle, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn exportVehicle(vehicle: *const Vehicle, allocator: std.mem.Allocator) ![]const u8 {
         var block_data_list = std.ArrayList(BlockData).init(allocator);
         defer block_data_list.deinit();
 

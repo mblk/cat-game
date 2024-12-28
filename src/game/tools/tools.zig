@@ -13,7 +13,7 @@ pub const Tool = struct {
 };
 
 pub const ToolVTable = struct {
-    name: []const u8, // XXX doesnt make sense
+    name: []const u8, // XXX doesnt make sense in the vtable... rename to ToolDescriptor?
 
     create: *const fn (allocator: std.mem.Allocator, deps: ToolDeps) anyerror!*anyopaque,
     destroy: *const fn (self_ptr: *anyopaque) void,
@@ -26,10 +26,15 @@ pub const ToolVTable = struct {
 // ...
 
 pub const ToolDeps = struct {
-    //allocator: std.mem.Allocator,
-    world: *World,
-    vehicle_defs: *VehicleDefs,
+    long_term_allocator: std.mem.Allocator,
+    per_frame_allocator: std.mem.Allocator,
+
+    save_manager: *engine.SaveManager,
     renderer2D: *engine.Renderer2D,
+    camera: *engine.Camera,
+
+    world: *World,
+    vehicle_defs: *const VehicleDefs,
 };
 
 pub const ToolUpdateContext = struct {

@@ -16,7 +16,7 @@ const GroundSegmentData = struct {
 };
 
 pub const WorldExporter = struct {
-    pub fn exportWorld(world: *World, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn exportWorld(world: *const World, allocator: std.mem.Allocator) ![]const u8 {
 
         // convert World to WorldData
         const ground_segments_data = try allocator.alloc(GroundSegmentData, world.ground_segments.items.len);

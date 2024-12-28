@@ -4,18 +4,24 @@ const zgui = @import("zgui");
 const engine = @import("../../../engine/engine.zig");
 
 const World = @import("../../world.zig").World;
-const WorldImporter = @import("../../world_export.zig").WorldImporter;
+const Vehicle = @import("../../vehicle.zig").Vehicle;
+const VehicleDefs = @import("../../vehicle.zig").VehicleDefs;
+const VehicleImporter = @import("../../vehicle_export.zig").VehicleImporter;
 
 const formatter = @import("../../../utils/formatter.zig");
+const ui_utils = @import("../../../utils/ui_utils.zig");
 
-pub const ImportWorldDialog = struct {
+pub const VehicleImportDialog = struct {
     const Self = @This();
-    const popup_id = "Import world";
+    const popup_id = "Import vehicle";
 
     world: *World,
+    vehicle_defs: *const VehicleDefs,
     save_manager: *engine.SaveManager,
     long_term_allocator: std.mem.Allocator,
     per_frame_allocator: std.mem.Allocator,
+
+    should_open: bool = false,
 
     save_infos: ?engine.SaveManager.SaveInfos = null,
     selected_index: ?usize = null,
@@ -23,12 +29,14 @@ pub const ImportWorldDialog = struct {
     pub fn init(
         self: *Self,
         world: *World,
+        vehicle_defs: *const VehicleDefs,
         save_manager: *engine.SaveManager,
         long_term_allocator: std.mem.Allocator,
         per_frame_allocator: std.mem.Allocator,
     ) void {
         self.* = Self{
             .world = world,
+            .vehicle_defs = vehicle_defs,
             .save_manager = save_manager,
             .long_term_allocator = long_term_allocator,
             .per_frame_allocator = per_frame_allocator,
@@ -40,12 +48,17 @@ pub const ImportWorldDialog = struct {
     }
 
     pub fn open(self: *Self) !void {
-        self.save_infos = try self.save_manager.getSaveInfos(.WorldExport, self.long_term_allocator);
+        std.debug.assert(self.save_infos == null);
 
-        zgui.openPopup(Self.popup_id, .{});
+        const save_infos = try self.save_manager.getSaveInfos(.VehicleExport, self.long_term_allocator);
+
+        self.save_infos = save_infos;
+        self.should_open = true;
     }
 
     fn close(self: *Self) void {
+        std.debug.assert(self.save_infos != null);
+
         if (self.save_infos) |infos| {
             infos.deinit();
         }
@@ -58,15 +71,12 @@ pub const ImportWorldDialog = struct {
         }
         const save_infos = self.save_infos.?;
 
-        // center on screen
-        const display_size = zgui.io.getDisplaySize();
-        zgui.setNextWindowPos(.{
-            .cond = .appearing,
-            .pivot_x = 0.5,
-            .pivot_y = 0.5,
-            .x = display_size[0] * 0.5,
-            .y = display_size[1] * 0.5,
-        });
+        if (self.should_open) {
+            self.should_open = false;
+            zgui.openPopup(Self.popup_id, .{});
+        }
+
+        ui_utils.setNextWindowToCenterOfScreen();
 
         if (zgui.beginPopupModal(Self.popup_id, .{
             .flags = .{
@@ -76,7 +86,7 @@ pub const ImportWorldDialog = struct {
             var buffer: [128]u8 = undefined;
             var select_via_doubleclick = false;
 
-            if (zgui.beginListBox("##world_files", .{ .w = 300, .h = 300 })) {
+            if (zgui.beginListBox("##files", .{ .w = 300, .h = 300 })) {
                 for (save_infos.entries, 0..) |entry, i| {
                     const s = std.fmt.bufPrintZ(&buffer, "{s}", .{entry.name}) catch unreachable;
 
@@ -116,8 +126,8 @@ pub const ImportWorldDialog = struct {
                 if (zgui.button("Import", .{ .w = 300, .h = 30 }) or select_via_doubleclick) {
                     var success = true;
 
-                    self.importWorld(selected) catch |e| {
-                        std.log.err("import world: {any}", .{e});
+                    self.importVehicle(selected) catch |e| {
+                        std.log.err("import vehicle: {any}", .{e});
                         success = false;
                     };
 
@@ -143,14 +153,14 @@ pub const ImportWorldDialog = struct {
         }
     }
 
-    fn importWorld(self: *Self, entry: engine.SaveManager.SaveInfoEntry) !void {
+    fn importVehicle(self: *Self, entry: engine.SaveManager.SaveInfoEntry) !void {
         const name = entry.name;
         std.log.info("import: {s}", .{name});
 
-        const data = try self.save_manager.load(.WorldExport, name, self.per_frame_allocator);
+        const data = try self.save_manager.load(.VehicleExport, name, self.per_frame_allocator);
         defer self.per_frame_allocator.free(data);
         std.log.info("world data: {s}", .{data});
 
-        try WorldImporter.importWorld(self.world, data, self.per_frame_allocator);
+        try VehicleImporter.importVehicle(self.world, data, self.per_frame_allocator, self.vehicle_defs);
     }
 };
