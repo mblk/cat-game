@@ -16,23 +16,20 @@ const World = game.World;
 const Vehicle = game.Vehicle;
 const Player = game.Player;
 
-const world_export = @import("../game/world_export.zig");
-const WorldExporter = world_export.WorldExporter;
-const WorldImporter = world_export.WorldImporter;
+const WorldExporter = game.WorldExporter;
+const WorldImporter = game.WorldImporter;
 
-const vehicle_export = @import("../game/vehicle_export.zig");
-const VehicleExporter = vehicle_export.VehicleExporter;
-const VehicleImporter = vehicle_export.VehicleImporter;
+const VehicleExporter = game.VehicleExporter;
+const VehicleImporter = game.VehicleImporter;
 
-const tools = @import("../game/tools/tools.zig");
-const ToolManager = tools.ToolManager;
-const GroundEditTool = @import("../game/tools/ground_edit_tool.zig").GroundEditTool;
-const VehicleEditTool = @import("../game/tools/vehicle_edit_tool.zig").VehicleEditTool;
+const ToolManager = game.ToolManager;
+const GroundEditTool = game.GroundEditTool;
+const VehicleEditTool = game.VehicleEditTool;
 
-const WorldRenderer = @import("../game/renderer/world_renderer.zig").WorldRenderer;
+const WorldRenderer = game.WorldRenderer;
 
-const WorldImportDialog = @import("../game/ui/editor/world_import_dialog.zig").WorldImportDialog;
-const WorldExportDialog = @import("../game/ui/editor/world_export_dialog.zig").WorldExportDialog;
+const WorldImportDialog = game.WorldImportDialog;
+const WorldExportDialog = game.WorldExportDialog;
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
@@ -48,6 +45,14 @@ pub fn getScene() engine.SceneDescriptor {
 //////////
 // TODO //
 //////////
+//
+// - generic datastructures:
+//   - graph + findPartitions
+//   - refs / versioned-index
+//
+// - check memory consumption (2MB per rendere2d, 5MB per game)
+//
+// - vehicle-center vs vehicle-CoM (maybe fix it in world.update ?)
 //
 // world:
 // - start+finish positions

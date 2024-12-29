@@ -10,8 +10,8 @@ const InputState = @import("input_state.zig");
 const ContentManager = @import("content_manager.zig").ContentManager;
 const SaveManager = @import("save_manager.zig").SaveManager;
 
-const TrackingAllocator = @import("../main.zig").TrackingAllocator;
-const TrackingAllocatorStats = @import("../main.zig").TrackingAllocatorStats;
+const TrackingAllocator = @import("../utils/tracking_allocator.zig").TrackingAllocator;
+const TrackingAllocatorStats = @import("../utils/tracking_allocator").TrackingAllocatorStats;
 
 pub const SceneDescriptor = struct {
     // desc

@@ -45,6 +45,8 @@ pub fn init(self: *Window) !void {
         }
     }
 
+    // 2256x1504
+    //const size = [2]i32{ 2256 / 2, 1504 / 2 };
     const size = [2]i32{ 1920, 1080 };
 
     const gl_major = 4;
