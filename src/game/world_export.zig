@@ -7,8 +7,6 @@ const Transform2 = engine.Transform2;
 const World = @import("world.zig").World;
 const GroundPointIndex = @import("world.zig").GroundPointIndex;
 
-const VehicleDefs = @import("vehicle.zig").VehicleDefs;
-
 const ItemDef = @import("item.zig").ItemDef;
 
 const WorldData = struct {

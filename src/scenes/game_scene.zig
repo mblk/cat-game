@@ -11,7 +11,6 @@ const b2 = zbox.API;
 const game = @import("../game/game.zig");
 
 const WorldDefs = game.WorldDefs;
-const VehicleDefs = game.VehicleDefs;
 const ItemDef = game.ItemDef;
 
 const World = game.World;
