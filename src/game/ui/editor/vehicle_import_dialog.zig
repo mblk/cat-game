@@ -4,10 +4,11 @@ const zgui = @import("zgui");
 const engine = @import("../../../engine/engine.zig");
 
 const World = @import("../../world.zig").World;
-const VehicleRef = @import("../../world.zig").VehicleRef;
 const Vehicle = @import("../../vehicle.zig").Vehicle;
-const VehicleDefs = @import("../../vehicle.zig").VehicleDefs;
 const VehicleImporter = @import("../../vehicle_export.zig").VehicleImporter;
+
+const refs = @import("../../refs.zig");
+const VehicleRef = refs.VehicleRef;
 
 const formatter = @import("../../../utils/formatter.zig");
 const ui_utils = @import("../../../utils/ui_utils.zig");
@@ -18,7 +19,6 @@ pub const VehicleImportDialog = struct {
     const popup_id = "Import vehicle";
 
     world: *World,
-    vehicle_defs: *const VehicleDefs,
     save_manager: *engine.SaveManager,
     long_term_allocator: std.mem.Allocator,
     per_frame_allocator: std.mem.Allocator,
@@ -36,14 +36,12 @@ pub const VehicleImportDialog = struct {
     pub fn init(
         self: *Self,
         world: *World,
-        vehicle_defs: *const VehicleDefs,
         save_manager: *engine.SaveManager,
         long_term_allocator: std.mem.Allocator,
         per_frame_allocator: std.mem.Allocator,
     ) void {
         self.* = Self{
             .world = world,
-            .vehicle_defs = vehicle_defs,
             .save_manager = save_manager,
             .long_term_allocator = long_term_allocator,
             .per_frame_allocator = per_frame_allocator,
@@ -168,7 +166,7 @@ pub const VehicleImportDialog = struct {
         defer self.per_frame_allocator.free(data);
         std.log.info("world data: {s}", .{data});
 
-        const vehicle_ref = try VehicleImporter.importVehicle(self.world, data, self.per_frame_allocator, self.vehicle_defs);
+        const vehicle_ref = try VehicleImporter.importVehicle(self.world, data, self.per_frame_allocator);
 
         if (self.after_import) |cb| {
             cb.function(vehicle_ref, cb.context);

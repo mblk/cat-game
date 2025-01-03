@@ -1,32 +1,35 @@
 const std = @import("std");
 
 const engine = @import("../engine/engine.zig");
+const Transform2 = engine.Transform2;
 const vec2 = engine.vec2;
 
 const zbox = @import("zbox");
 const b2 = zbox.API;
 
 const World = @import("world.zig").World;
-const VehicleRef = @import("world.zig").VehicleRef;
 
-const VehicleDefs = @import("vehicle.zig").VehicleDefs;
 const Vehicle = @import("vehicle.zig").Vehicle;
 const Block = @import("vehicle.zig").Block;
 const Device = @import("vehicle.zig").Device;
 
-const VehicleData = struct {
-    transform: b2.b2Transform,
+const refs = @import("refs.zig");
+const VehicleRef = refs.VehicleRef;
+const ItemRef = refs.ItemRef;
+
+pub const VehicleData = struct {
+    transform: Transform2,
 
     blocks: []BlockData,
     devices: []DeviceData,
 };
 
-const BlockData = struct {
+pub const BlockData = struct {
     def_id: []const u8,
     local_position: vec2,
 };
 
-const DeviceData = struct {
+pub const DeviceData = struct {
     def_id: []const u8,
     local_position: vec2,
 
@@ -43,6 +46,24 @@ const DeviceData = struct {
 
 pub const VehicleExporter = struct {
     pub fn exportVehicle(vehicle: *const Vehicle, allocator: std.mem.Allocator) ![]const u8 {
+        // get data
+        const vehicle_data = try getVehicleData(vehicle, allocator);
+        defer allocator.free(vehicle_data.blocks);
+        defer allocator.free(vehicle_data.devices);
+
+        // convert to json
+        var string = std.ArrayList(u8).init(allocator);
+        defer string.deinit();
+
+        try std.json.stringify(vehicle_data, .{
+            .whitespace = .indent_4,
+        }, string.writer());
+
+        // return copy of string, must be freed by caller
+        return allocator.dupe(u8, string.items);
+    }
+
+    pub fn getVehicleData(vehicle: *const Vehicle, allocator: std.mem.Allocator) !VehicleData {
         var block_data_list = std.ArrayList(BlockData).init(allocator);
         defer block_data_list.deinit();
 
@@ -94,37 +115,20 @@ pub const VehicleExporter = struct {
                     });
                 },
             }
-
-            // try device_data_list.append(.{
-            //     .def_id = device.def.id,
-            //     .local_position = device.local_position,
-            // });
         }
 
         const vehicle_data = VehicleData{
-            .transform = b2.b2Body_GetTransform(vehicle.body_id),
-
+            .transform = vehicle.getTransform(),
             .blocks = try block_data_list.toOwnedSlice(),
             .devices = try device_data_list.toOwnedSlice(),
         };
-        defer allocator.free(vehicle_data.blocks);
-        defer allocator.free(vehicle_data.devices);
 
-        // convert to json
-        var string = std.ArrayList(u8).init(allocator);
-        defer string.deinit();
-
-        try std.json.stringify(vehicle_data, .{
-            .whitespace = .indent_4,
-        }, string.writer());
-
-        // return copy of string, must be freed by caller
-        return allocator.dupe(u8, string.items);
+        return vehicle_data;
     }
 };
 
 pub const VehicleImporter = struct {
-    pub fn importVehicle(world: *World, data: []const u8, allocator: std.mem.Allocator, vehicle_defs: *const VehicleDefs) !VehicleRef {
+    pub fn importVehicle(world: *World, data: []const u8, allocator: std.mem.Allocator) !VehicleRef {
 
         // parse json
         const parsed = try std.json.parseFromSlice(
@@ -137,19 +141,22 @@ pub const VehicleImporter = struct {
 
         const vehicle_data = parsed.value;
 
-        const vehicle_ref = world.createVehicle(vec2.zero);
+        return createVehicleFromData(world, vehicle_data);
+    }
+
+    pub fn createVehicleFromData(world: *World, vehicle_data: VehicleData) VehicleRef {
+        //
+        const vehicle_ref = world.createVehicle(vehicle_data.transform);
         const vehicle = world.getVehicle(vehicle_ref).?;
 
-        b2.b2Body_SetTransform(vehicle.body_id, vehicle_data.transform.p, vehicle_data.transform.q);
-
         for (vehicle_data.blocks) |block_data| {
-            if (vehicle_defs.getBlockDef(block_data.def_id)) |block_def| {
+            if (world.defs.getBlockDef(block_data.def_id)) |block_def| {
                 _ = vehicle.createBlock(block_def, block_data.local_position);
             }
         }
 
         for (vehicle_data.devices) |device_data| {
-            if (vehicle_defs.getDeviceDef(device_data.def_id)) |device_def| {
+            if (world.defs.getDeviceDef(device_data.def_id)) |device_def| {
                 const device_ref = vehicle.createDevice(device_def, device_data.local_position).?; // TODO might fail
                 const device = vehicle.getDevice(device_ref).?;
 

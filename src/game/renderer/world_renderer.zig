@@ -22,6 +22,9 @@ const Device = vehicle_ns.Device;
 const WheelDevice = vehicle_ns.WheelDevice;
 const ThrusterDevice = vehicle_ns.ThrusterDevice;
 
+const item_ns = @import("../item.zig");
+const Item = item_ns.Item;
+
 const player_ns = @import("../player.zig");
 const Player = player_ns.Player;
 
@@ -60,10 +63,11 @@ pub const WorldRenderer = struct {
     }
 
     pub fn render(self: *Self, world: *const World, camera: *const Camera) void {
-        //_ = camera;
-        self.renderBackground(camera);
 
+        //
+        self.renderBackground(camera);
         self.renderOuterBounds(world);
+        self.renderStartFinish(world);
 
         // ground segments
         for (world.ground_segments.items) |*ground_segment| {
@@ -76,9 +80,16 @@ pub const WorldRenderer = struct {
             self.renderVehicle(vehicle);
         }
 
+        // items
+        for (world.items.items) |*item| {
+            if (!item.alive) continue;
+            self.renderItem(item);
+        }
+
         // players
         for (world.players.items) |*player| {
             self.renderPlayer(player);
+            self.renderScore(player, camera);
         }
     }
 
@@ -106,7 +117,7 @@ pub const WorldRenderer = struct {
     }
 
     fn renderOuterBounds(self: *Self, world: *const World) void {
-        const hs = world.size.scale(0.5);
+        const hs = world.settings.size.scale(0.5);
 
         if (false) {
             const points = [4]vec2{
@@ -318,11 +329,53 @@ pub const WorldRenderer = struct {
         _ = device;
     }
 
+    fn renderItem(self: *Self, item: *Item) void {
+        const t = item.getTransform();
+
+        var color = Color.white;
+        switch (item.def.data) {
+            .Food => |food_data| {
+                //
+                _ = food_data;
+                color = Color.init(153, 102, 51, 255); // brown
+            },
+            .Debris => |debris_data| {
+                //
+                _ = debris_data;
+            },
+        }
+
+        switch (item.def.shape) {
+            .Circle => |radius| {
+                self.renderer2D.addSolidCircle(t.pos, radius, color);
+            },
+            .Rect => |size| {
+                const hs = size.scale(0.5);
+                const center_local = vec2.zero;
+                const points_local = [4]vec2{
+                    center_local.add(vec2.init(-hs.x, -hs.y)),
+                    center_local.add(vec2.init(hs.x, -hs.y)),
+                    center_local.add(vec2.init(hs.x, hs.y)),
+                    center_local.add(vec2.init(-hs.x, hs.y)),
+                };
+                const points_world = [4]vec2{
+                    t.transformLocalToWorld(points_local[0]),
+                    t.transformLocalToWorld(points_local[1]),
+                    t.transformLocalToWorld(points_local[2]),
+                    t.transformLocalToWorld(points_local[3]),
+                };
+                // ccw
+                self.renderer2D.addTriangle(points_world[0], points_world[1], points_world[2], color);
+                self.renderer2D.addTriangle(points_world[0], points_world[2], points_world[3], color);
+            },
+        }
+    }
+
     fn renderPlayer(self: *Self, player: *const Player) void {
         const t = player.getTransform();
 
         const hs = vec2.init(1.0, 1.0);
-        const center_local = vec2.zero;
+        const center_local = vec2.init(0, 0.4);
         const points_local = [4]vec2{
             center_local.add(vec2.init(-hs.x, -hs.y)),
             center_local.add(vec2.init(hs.x, -hs.y)),
@@ -337,5 +390,46 @@ pub const WorldRenderer = struct {
         };
 
         self.renderer2D.addTexturedQuad(points_world, Color.white, self.tex_cat1);
+
+        if (player.show_hand) {
+            const hand_color1 = Color.init(63, 63, 63, 255);
+            const hand_color2 = Color.init(51, 51, 51, 255);
+
+            const hand_dir = vec2.sub(player.hand_end, player.hand_start).normalize();
+            const hand_left = hand_dir.turn90ccw();
+
+            const p1_left = player.hand_start.add(hand_left.scale(0.05));
+            const p1_right = player.hand_start.add(hand_left.scale(0.05).neg());
+
+            const p2_left = player.hand_end.add(hand_left.scale(0.05));
+            const p2_right = player.hand_end.add(hand_left.scale(0.05).neg());
+
+            self.renderer2D.addTriangle(p1_left, p2_right, p2_left, hand_color1);
+            self.renderer2D.addTriangle(p1_right, p2_right, p1_left, hand_color1);
+            self.renderer2D.addSolidCircle(player.hand_end, 0.075, hand_color2);
+        }
+
+        if (player.show_hint) {
+            self.renderer2D.addText(player.hint_position, Color.white, "{s}", .{player.hint_text.?});
+        }
+    }
+
+    fn renderScore(self: *Self, player: *const Player, camera: *const Camera) void {
+        //
+        //_ = self;
+        //_ = player;
+        _ = camera;
+
+        const p = player.getTransform().pos.add(vec2.init(0, 5));
+
+        self.renderer2D.addText(p, Color.black, "eaten={d:.1} burned={d:.1}", .{ player.total_kcal_eaten, player.total_kcal_burned });
+    }
+
+    fn renderStartFinish(self: *Self, world: *const World) void {
+        self.renderer2D.addCircle(world.settings.start_position, 1.0, Color.white);
+        self.renderer2D.addCircle(world.settings.finish_position, 1.0, Color.white);
+
+        self.renderer2D.addText(world.settings.start_position, Color.white, "start", .{});
+        self.renderer2D.addText(world.settings.finish_position, Color.white, "finish", .{});
     }
 };

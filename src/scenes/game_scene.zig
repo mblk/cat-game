@@ -10,7 +10,9 @@ const b2 = zbox.API;
 
 const game = @import("../game/game.zig");
 
+const WorldDefs = game.WorldDefs;
 const VehicleDefs = game.VehicleDefs;
+const ItemDef = game.ItemDef;
 
 const World = game.World;
 const Vehicle = game.Vehicle;
@@ -23,8 +25,6 @@ const VehicleExporter = game.VehicleExporter;
 const VehicleImporter = game.VehicleImporter;
 
 const ToolManager = game.ToolManager;
-const GroundEditTool = game.GroundEditTool;
-const VehicleEditTool = game.VehicleEditTool;
 
 const WorldRenderer = game.WorldRenderer;
 
@@ -50,17 +50,10 @@ pub fn getScene() engine.SceneDescriptor {
 //   - graph + findPartitions
 //   - refs / versioned-index
 //
-// - check memory consumption (2MB per rendere2d, 5MB per game)
-//
 // - vehicle-center vs vehicle-CoM (maybe fix it in world.update ?)
 //
 // world:
-// - start+finish positions
-// - change world size (and maybe other settings like gravity?)
-//
-// - food/treat/snack positions
-//
-// - debris from destroyable things?
+// - spawn debris from destroyable things?
 //
 
 const GameScene = struct {
@@ -72,7 +65,7 @@ const GameScene = struct {
     };
 
     // defs
-    vehicle_defs: VehicleDefs,
+    world_defs: WorldDefs,
 
     // state
     world: World,
@@ -99,35 +92,27 @@ const GameScene = struct {
     import_world_dialog: WorldImportDialog = undefined,
     export_world_dialog: WorldExportDialog = undefined,
 
-    vehicle_save_name_buffer: [10:0]u8 = [_:0]u8{0} ** 10,
-
     fn load(context: *const engine.LoadContext) !*anyopaque {
         // TODO correct error handling (eg. errdefer)
 
-        const vehicle_defs = try VehicleDefs.load(context.allocator);
-
-        var world = World.create(context.allocator);
-        errdefer world.free();
-
-        const camera = engine.Camera.create();
-
         const self = try context.allocator.create(Self);
         self.* = Self{
-            .vehicle_defs = vehicle_defs,
-            .world = world, // Note: This makes a copy
-            .camera = camera,
+            .world_defs = undefined,
+            .world = undefined,
+            .camera = engine.Camera.create(),
             .renderer = undefined,
             .zbox_renderer = undefined,
             .world_renderer = undefined,
-            .tool_manager = undefined, // XXX needs world address
+            .tool_manager = undefined,
         };
+
+        try self.world_defs.init(context.allocator);
+
+        self.world.init(context.allocator, &self.world_defs);
 
         try self.renderer.init(context.allocator, context.content_manager);
         self.zbox_renderer.init(&self.renderer);
         try self.world_renderer.init(&self.renderer);
-
-        //@memcpy(self.world_save_name_buffer[0..7], "world_1");
-        @memcpy(self.vehicle_save_name_buffer[0..9], "vehicle_1");
 
         var tool_manager = ToolManager.create(context.allocator, .{
             .long_term_allocator = context.allocator,
@@ -135,12 +120,13 @@ const GameScene = struct {
             .save_manager = context.save_manager,
             .renderer2D = &self.renderer,
             .camera = &self.camera,
-            .vehicle_defs = &self.vehicle_defs,
             .world = &self.world,
         });
 
-        try tool_manager.register(GroundEditTool.getVTable());
-        try tool_manager.register(VehicleEditTool.getVTable());
+        try tool_manager.register(game.GroundEditTool.getVTable());
+        try tool_manager.register(game.VehicleEditTool.getVTable());
+        try tool_manager.register(game.ItemEditTool.getVTable());
+        try tool_manager.register(game.WorldSettingsTool.getVTable());
         self.tool_manager = tool_manager;
 
         self.import_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
@@ -151,11 +137,6 @@ const GameScene = struct {
             importWorld(&self.world, context.save_manager, context.allocator, "world_1") catch |e| {
                 std.log.err("import world: {any}", .{e});
             };
-            importVehicle(&self.world, context.save_manager, context.allocator, &self.vehicle_defs, "vehicle_2") catch |e| {
-                std.log.err("import vehicle: {any}", .{e});
-            };
-
-            self.world.createPlayer(vec2.init(0, 0));
         }
         // -----------
         //self.enterPlayMode();
@@ -174,8 +155,9 @@ const GameScene = struct {
         self.tool_manager.destroy();
         self.world_renderer.deinit();
         self.renderer.deinit();
-        self.world.free();
-        self.vehicle_defs.free();
+        self.world.deinit();
+
+        self.world_defs.deinit();
 
         context.allocator.destroy(self);
     }
@@ -306,7 +288,11 @@ const GameScene = struct {
         if (zgui.beginMainMenuBar()) {
             if (zgui.beginMenu("File", true)) {
                 if (zgui.menuItem("New world", .{})) {
-                    self.world.clear();
+                    self.world.reset();
+                    //xxx
+                    self.world.createPlayer(vec2.init(0, 0));
+                    self.world.movePlayersToStart();
+                    //xxx
                 }
                 if (zgui.menuItem("Import world...", .{})) {
                     show_import_world_dialog = true;
@@ -369,22 +355,21 @@ const GameScene = struct {
             .input = context.input_state,
         });
 
-        // ...
-        // zgui.setNextWindowPos(.{ .x = 10.0, .y = 400.0, .cond = .appearing });
-        // //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
+        zgui.setNextWindowPos(.{ .x = 1600.0, .y = 400.0, .cond = .appearing });
+        //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
-        // if (zgui.begin("Editor", .{})) {
-        //     zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
+        if (zgui.begin("Editor", .{})) {
+            zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
 
-        //     //
-        //     // physics
-        //     //
+            //
+            // physics
+            //
 
-        //     if (zgui.collapsingHeader("physics", .{})) {
-        //         self.zbox_renderer.drawUi();
-        //     }
-        // }
-        // zgui.end();
+            if (zgui.collapsingHeader("physics", .{})) {
+                self.zbox_renderer.drawUi();
+            }
+        }
+        zgui.end();
     }
 
     fn toggleMasterMode(self: *Self) void {
@@ -405,6 +390,10 @@ const GameScene = struct {
 
         self.tool_manager.deselect();
         self.camera.reset();
+
+        //xxx
+        self.world.movePlayersToStart();
+        //xxx
     }
 
     fn enterEditMode(self: *Self) void {
@@ -428,12 +417,12 @@ const GameScene = struct {
         try WorldImporter.importWorld(world, data, temp_allocator);
     }
 
-    fn importVehicle(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, vehicle_defs: *const VehicleDefs, name: []const u8) !void {
+    fn importVehicle(world: *World, save_manager: *engine.SaveManager, temp_allocator: std.mem.Allocator, name: []const u8) !void {
         const data = try save_manager.load(.VehicleExport, name, temp_allocator);
         defer temp_allocator.free(data);
 
         //std.log.info("vehicle data: {s}", .{data});
 
-        _ = try VehicleImporter.importVehicle(world, data, temp_allocator, vehicle_defs);
+        _ = try VehicleImporter.importVehicle(world, data, temp_allocator);
     }
 };

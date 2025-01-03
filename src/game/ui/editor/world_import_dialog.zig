@@ -6,6 +6,8 @@ const engine = @import("../../../engine/engine.zig");
 const World = @import("../../world.zig").World;
 const WorldImporter = @import("../../world_export.zig").WorldImporter;
 
+//const VehicleDefs = @import("../../vehicle.zig").VehicleDefs;
+
 const formatter = @import("../../../utils/formatter.zig");
 const ui_utils = @import("../../../utils/ui_utils.zig");
 

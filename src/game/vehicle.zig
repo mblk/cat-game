@@ -8,48 +8,9 @@ const Transform2 = engine.Transform2;
 const zbox = @import("zbox");
 const b2 = zbox.API;
 
-// TODO b2 user data
-// body -> Vehicle
-// shape -> Block ?
-
-pub const VehicleDefs = struct {
-    allocator: std.mem.Allocator,
-    blocks: []BlockDef,
-    devices: []DeviceDef,
-
-    pub fn load(allocator: std.mem.Allocator) !VehicleDefs {
-        return VehicleDefs{
-            .allocator = allocator,
-            .blocks = try BlockDef.getAll(allocator),
-            .devices = try DeviceDef.getAll(allocator),
-        };
-    }
-
-    pub fn free(self: *VehicleDefs) void {
-        self.allocator.free(self.blocks);
-        self.allocator.free(self.devices);
-    }
-
-    pub fn getBlockDef(self: *const VehicleDefs, id: []const u8) ?BlockDef {
-        for (self.blocks) |block_def| {
-            if (std.mem.eql(u8, id, block_def.id)) {
-                return block_def;
-            }
-        }
-
-        return null;
-    }
-
-    pub fn getDeviceDef(self: *const VehicleDefs, id: []const u8) ?DeviceDef {
-        for (self.devices) |device_def| {
-            if (std.mem.eql(u8, id, device_def.id)) {
-                return device_def;
-            }
-        }
-
-        return null;
-    }
-};
+const refs = @import("refs.zig");
+const BlockRef = refs.BlockRef;
+const DeviceRef = refs.DeviceRef;
 
 pub const BlockDef = struct {
     id: []const u8,
@@ -77,22 +38,6 @@ pub const BlockDef = struct {
         });
 
         return list.toOwnedSlice();
-    }
-};
-
-pub const BlockRef = struct {
-    block_index: usize,
-    //block_version
-
-    pub fn format(self: BlockRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-
-        try writer.print("Block(idx={d})", .{self.block_index});
-    }
-
-    pub fn equals(self: BlockRef, other: BlockRef) bool {
-        return self.block_index == other.block_index;
     }
 };
 
@@ -261,18 +206,6 @@ pub const DeviceDef = struct {
         });
 
         return list.toOwnedSlice();
-    }
-};
-
-pub const DeviceRef = struct {
-    device_index: usize,
-    // version
-
-    pub fn format(self: DeviceRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-
-        try writer.print("Device(idx={d})", .{self.device_index});
     }
 };
 
@@ -495,11 +428,11 @@ pub const Vehicle = struct {
 
     edit_flag: bool,
 
-    pub fn create(allocator: std.mem.Allocator, world_id: b2.b2WorldId, position: vec2) Vehicle {
+    pub fn create(allocator: std.mem.Allocator, world_id: b2.b2WorldId, transform: Transform2) Vehicle {
         var body_def = b2.b2DefaultBodyDef();
         body_def.type = b2.b2_dynamicBody;
-        body_def.position.x = position.x;
-        body_def.position.y = position.y;
+        body_def.position = transform.pos.to_b2();
+        body_def.rotation = transform.rot.to_b2();
         const body_id = b2.b2CreateBody(world_id, &body_def);
 
         const vehicle = Vehicle{
@@ -568,6 +501,13 @@ pub const Vehicle = struct {
 
             thruster.update(input, renderer);
         }
+    }
+
+    pub fn getTransform(self: *const Vehicle) Transform2 {
+        std.debug.assert(self.alive);
+
+        const t = b2.b2Body_GetTransform(self.body_id);
+        return Transform2.from_b2(t);
     }
 
     pub fn transformWorldToLocal(self: *const Vehicle, world_position: vec2) vec2 {

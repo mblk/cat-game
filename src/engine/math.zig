@@ -64,6 +64,10 @@ pub const vec2 = packed struct {
         };
     }
 
+    pub fn normalize(self: vec2) vec2 {
+        return self.scale(1.0 / self.len());
+    }
+
     pub fn mulPairwise(self: vec2, other: vec2) vec2 {
         return vec2{
             .x = self.x * other.x,
@@ -75,19 +79,58 @@ pub const vec2 = packed struct {
         return std.math.sqrt(self.x * self.x + self.y * self.y);
     }
 
+    pub fn turn90cw(self: vec2) vec2 {
+        return vec2{
+            .x = self.y,
+            .y = -self.x,
+        };
+    }
+
+    pub fn turn90ccw(self: vec2) vec2 {
+        return vec2{
+            .x = -self.y,
+            .y = self.x,
+        };
+    }
+
     pub fn dist(a: vec2, b: vec2) f32 {
         return std.math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+    }
+
+    pub fn format(self: vec2, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        //_ = options;
+
+        // pub const FormatOptions = struct {
+        //     precision: ?usize = null,
+        //     width: ?usize = null,
+        //     alignment: Alignment = default_alignment,
+        //     fill: u21 = default_fill_char,
+        // };
+
+        //try writer.print("({d},{d},{s},{any})", .{ self.x, self.y, fmt, options });
+        //try writer.print("{d:_>[1].[2]}\n", .{ self.x, width, precision });
+        //try writer.print("{d:[1].[2]}\n", .{ self.x, width, precision });
+
+        if (options.precision != null) {
+            try writer.print("({d:.[2]},{d:.[2]})", .{ self.x, self.y, options.precision.? });
+        } else {
+            try writer.print("({d},{d})", .{ self.x, self.y });
+        }
     }
 };
 
 pub const rot2 = struct {
-    angle: f32,
+    const identity = rot2{
+        .sin = 0,
+        .cos = 1,
+    };
+
     sin: f32,
     cos: f32,
 
     pub fn from_angle(angle: f32) rot2 {
         return rot2{
-            .angle = angle,
             .sin = std.math.sin(angle),
             .cos = std.math.cos(angle),
         };
@@ -95,9 +138,15 @@ pub const rot2 = struct {
 
     pub fn from_b2(b2rot: b2.b2Rot) rot2 {
         return rot2{
-            .angle = 0, // TODO
             .sin = b2rot.s,
             .cos = b2rot.c,
+        };
+    }
+
+    pub fn to_b2(self: rot2) b2.b2Rot {
+        return b2.b2Rot{
+            .s = self.sin,
+            .c = self.cos,
         };
     }
 
@@ -109,8 +158,6 @@ pub const rot2 = struct {
             .x = self.cos * x - self.sin * y,
             .y = self.sin * x + self.cos * y,
         };
-
-        //return B2_LITERAL( b2Vec2 ){ q.c * v.x - q.s * v.y, q.s * v.x + q.c * v.y };
     }
 
     pub fn rotateWorldToLocal(self: rot2, world_vector: vec2) vec2 {
@@ -121,14 +168,19 @@ pub const rot2 = struct {
             .x = self.cos * x + self.sin * y,
             .y = -self.sin * x + self.cos * y,
         };
-
-        //return B2_LITERAL( b2Vec2 ){ q.c * v.x + q.s * v.y, -q.s * v.x + q.c * v.y };
     }
 };
 
 pub const Transform2 = struct {
     pos: vec2,
     rot: rot2,
+
+    pub fn from_pos(pos: vec2) Transform2 {
+        return Transform2{
+            .pos = pos,
+            .rot = rot2.identity,
+        };
+    }
 
     pub fn from_b2(b2transform: b2.b2Transform) Transform2 {
         const p = vec2.from_b2(b2transform.p);

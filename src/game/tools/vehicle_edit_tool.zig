@@ -3,24 +3,26 @@ const zgui = @import("zgui");
 
 const engine = @import("../../engine/engine.zig");
 const vec2 = engine.vec2;
+const Transform2 = engine.Transform2;
 const Color = engine.Color;
 
 const zbox = @import("zbox");
 const b2 = zbox.API;
 
 const World = @import("../world.zig").World;
-const VehicleRef = @import("../world.zig").VehicleRef;
 const VehicleAndBlockRef = @import("../world.zig").VehicleAndBlockRef;
 const VehicleAndDeviceRef = @import("../world.zig").VehicleAndDeviceRef;
 
 const Vehicle = @import("../vehicle.zig").Vehicle;
-const VehicleDefs = @import("../vehicle.zig").VehicleDefs;
 const Block = @import("../vehicle.zig").Block;
 const BlockDef = @import("../vehicle.zig").BlockDef;
 const BlockRef = @import("../vehicle.zig").BlockRef;
 const BlockConnectionEdge = @import("../vehicle.zig").BlockConnectionEdge;
 const DeviceDef = @import("../vehicle.zig").DeviceDef;
 const DeviceRef = @import("../vehicle.zig").DeviceRef;
+
+const refs = @import("../refs.zig");
+const VehicleRef = refs.VehicleRef;
 
 const tools = @import("tools.zig");
 const ToolVTable = tools.ToolVTable;
@@ -61,7 +63,6 @@ pub const VehicleEditTool = struct {
     camera: *engine.Camera,
 
     world: *World,
-    vehicle_defs: *const VehicleDefs,
 
     // state
     mode: Mode = .Idle,
@@ -92,11 +93,10 @@ pub const VehicleEditTool = struct {
             .renderer2D = deps.renderer2D,
             .camera = deps.camera,
             .world = deps.world,
-            .vehicle_defs = deps.vehicle_defs,
         };
 
         self.vehicle_export_dialog.init(deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
-        self.vehicle_import_dialog.init(deps.world, deps.vehicle_defs, deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
+        self.vehicle_import_dialog.init(deps.world, deps.save_manager, deps.long_term_allocator, deps.per_frame_allocator);
 
         self.vehicle_import_dialog.after_import = .{
             .function = afterVehicleImport,
@@ -230,7 +230,7 @@ pub const VehicleEditTool = struct {
                     self.renderBlockPreview(block_def, build_pos_world, preview_color);
 
                     if (can_build and input.consumeMouseButtonDownEvent(.left)) {
-                        const vehicle_ref = self.world.createVehicle(build_pos_world);
+                        const vehicle_ref = self.world.createVehicle(Transform2.from_pos(build_pos_world));
                         const vehicle = self.world.getVehicle(vehicle_ref).?;
 
                         const new_block_ref = vehicle.createBlock(block_def, vec2.init(0, 0));
@@ -536,13 +536,13 @@ pub const VehicleEditTool = struct {
                 zgui.text("create:", .{});
 
                 var buffer: [128]u8 = undefined;
-                for (self.vehicle_defs.blocks) |block_def| {
+                for (self.world.defs.block_defs) |block_def| {
                     const s = std.fmt.bufPrintZ(&buffer, "block: {s}", .{block_def.id}) catch unreachable;
                     if (zgui.button(s, .{})) {
                         self.mode = .{ .CreateBlock = block_def };
                     }
                 }
-                for (self.vehicle_defs.devices) |device_def| {
+                for (self.world.defs.device_defs) |device_def| {
                     const s = std.fmt.bufPrintZ(&buffer, "device: {s}", .{device_def.id}) catch unreachable;
                     if (zgui.button(s, .{})) {
                         self.mode = .{ .CreateDevice = device_def };

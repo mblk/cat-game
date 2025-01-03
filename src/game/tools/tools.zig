@@ -5,7 +5,7 @@ const vec2 = engine.vec2;
 const Color = engine.Color;
 
 const World = @import("../world.zig").World;
-const VehicleDefs = @import("../vehicle.zig").VehicleDefs;
+const WorldDefs = @import("../world.zig").WorldDefs;
 
 pub const Tool = struct {
     vtable: ToolVTable,
@@ -34,7 +34,6 @@ pub const ToolDeps = struct {
     camera: *engine.Camera,
 
     world: *World,
-    vehicle_defs: *const VehicleDefs,
 };
 
 pub const ToolUpdateContext = struct {
