@@ -5,6 +5,7 @@ const engine = @import("../engine/engine.zig");
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
+        .id = .Menu,
         .name = "menu",
         .load = MenuScene.load,
         .unload = MenuScene.unload,
@@ -15,7 +16,7 @@ pub fn getScene() engine.SceneDescriptor {
 }
 
 const MenuScene = struct {
-    const Self = MenuScene;
+    const Self = @This();
 
     a: i32,
 
@@ -53,33 +54,32 @@ const MenuScene = struct {
     fn drawUi(self_ptr: *anyopaque, context: *const engine.DrawUiContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
+        const button_w = 200;
+        const button_h = 40;
+
         _ = self;
 
         zgui.setNextWindowPos(.{ .x = 300.0, .y = 300.0, .cond = .appearing });
         zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
 
         if (zgui.begin("Main menu", .{})) {
-            if (zgui.button("Start new game", .{})) {
-                context.scene_commands.change_scene = true;
-                context.scene_commands.new_scene_name = "game";
+            if (zgui.button("Start new game", .{ .w = button_w, .h = button_h })) {
+                context.scene_commands.new_scene = .LevelSelect;
             }
 
-            if (zgui.button("Load test scene 1", .{})) {
-                context.scene_commands.change_scene = true;
-                context.scene_commands.new_scene_name = "test";
+            if (zgui.button("Load test scene 1", .{ .w = button_w, .h = button_h })) {
+                context.scene_commands.new_scene = .Renderer2DTest;
             }
 
-            if (zgui.button("Load test scene 2", .{})) {
-                context.scene_commands.change_scene = true;
-                context.scene_commands.new_scene_name = "test2";
+            if (zgui.button("Load test scene 2", .{ .w = button_w, .h = button_h })) {
+                context.scene_commands.new_scene = .TestScene1;
             }
 
-            if (zgui.button("Load test scene 3", .{})) {
-                context.scene_commands.change_scene = true;
-                context.scene_commands.new_scene_name = "test3";
+            if (zgui.button("Load test scene 3", .{ .w = button_w, .h = button_h })) {
+                context.scene_commands.new_scene = .TestScene2;
             }
 
-            if (zgui.button("Exit game", .{})) {
+            if (zgui.button("Exit game", .{ .w = button_w, .h = button_h })) {
                 context.scene_commands.exit = true;
             }
 

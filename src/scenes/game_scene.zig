@@ -30,9 +30,11 @@ const WorldRenderer = game.WorldRenderer;
 const WorldImportDialog = game.WorldImportDialog;
 const WorldExportDialog = game.WorldExportDialog;
 const VictoryDialog = game.VictoryDialog;
+const PauseDialog = game.PauseDialog;
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
+        .id = .Game,
         .name = "game",
         .load = GameScene.load,
         .unload = GameScene.unload,
@@ -63,7 +65,7 @@ const SimSpeed = union(enum) {
 };
 
 const GameScene = struct {
-    const Self = GameScene;
+    const Self = @This();
 
     const MasterMode = enum {
         Edit,
@@ -99,7 +101,11 @@ const GameScene = struct {
     import_world_dialog: WorldImportDialog = undefined,
     export_world_dialog: WorldExportDialog = undefined,
     victory_dialog: VictoryDialog = undefined,
+    pause_dialog: PauseDialog = undefined,
+
     victory_condition_detected: bool = false,
+    victory_finish_request: bool = false,
+    pause_abort_request: bool = false,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
         // TODO correct error handling (eg. errdefer)
@@ -141,38 +147,65 @@ const GameScene = struct {
         self.import_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
         self.export_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
         self.victory_dialog.init();
+        self.pause_dialog.init();
 
-        self.victory_dialog.continue_cb = .{
-            .function = victoryDialogContinue,
-            .context = self,
-        };
+        self.victory_dialog.reset_cb = .{ .function = victoryDialogReset, .context = self };
+        self.victory_dialog.finish_cb = .{ .function = victoryDialogFinish, .context = self };
+
+        self.pause_dialog.reset_cb = .{ .function = pauseDialogReset, .context = self };
+        self.pause_dialog.abort_cb = .{ .function = pauseDialogAbort, .context = self };
 
         // -----------
-        if (true) {
-            importWorld(&self.world, context.save_manager, context.allocator, "world_1") catch |e| {
-                std.log.err("import world: {any}", .{e});
+        const args = context.scene_args.Game;
+
+        if (args.level_name) |level_name| {
+            importWorld(&self.world, context.save_manager, context.allocator, level_name) catch |e| {
+                std.log.err("failed to load level {s}: {any}", .{ level_name, e });
+                // TODO return error?
             };
+
+            context.allocator.free(level_name);
         }
-        // -----------
-        //self.enterPlayMode();
-        self.enterEditMode();
-        // -----------
+
+        if (args.edit_mode) {
+            self.enterEditMode();
+        } else {
+            self.enterPlayMode();
+        }
 
         return self;
     }
 
-    fn victoryDialogContinue(data: void, context: *anyopaque) void {
+    fn victoryDialogReset(data: void, context: *anyopaque) void {
         const self: *Self = @ptrCast(@alignCast(context));
-
         _ = data;
         _ = self;
+    }
 
-        std.log.info("continue ...", .{});
+    fn victoryDialogFinish(data: void, context: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(context));
+        _ = data;
+
+        self.victory_finish_request = true;
+    }
+
+    fn pauseDialogReset(data: void, context: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(context));
+        _ = data;
+        _ = self;
+    }
+
+    fn pauseDialogAbort(data: void, context: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(context));
+        _ = data;
+
+        self.pause_abort_request = true;
     }
 
     fn unload(self_ptr: *anyopaque, context: *const engine.UnloadContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
+        self.pause_dialog.deinit();
         self.victory_dialog.deinit();
         self.export_world_dialog.deinit();
         self.import_world_dialog.deinit();
@@ -191,7 +224,8 @@ const GameScene = struct {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
         const is_paused = self.sim_speed == .Paused or
-            self.victory_dialog.is_open;
+            self.victory_dialog.is_open or
+            self.pause_dialog.is_open;
 
         // change mode?
         if (context.input_state.consumeKeyDownEvent(.F1)) {
@@ -268,9 +302,9 @@ const GameScene = struct {
         // must update after camera has moved
         self.prev_mouse_position = self.camera.screenToWorld(context.input_state.mouse_position_screen);
 
-        // scene management
+        // pause?
         if (context.input_state.consumeKeyDownEvent(.escape)) {
-            context.scene_commands.exit = true;
+            self.pause_dialog.open();
         }
 
         // victory?
@@ -286,6 +320,16 @@ const GameScene = struct {
                 std.log.info("reset victory", .{});
                 self.victory_condition_detected = false;
             }
+        }
+
+        // scene management
+        if (self.pause_abort_request) {
+            self.pause_abort_request = false;
+            context.scene_commands.new_scene = .LevelSelect;
+        }
+        if (self.victory_finish_request) {
+            self.victory_finish_request = false;
+            context.scene_commands.new_scene = .LevelSelect;
         }
     }
 
@@ -326,6 +370,7 @@ const GameScene = struct {
 
         //
         self.victory_dialog.drawUi();
+        self.pause_dialog.drawUi();
     }
 
     fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {

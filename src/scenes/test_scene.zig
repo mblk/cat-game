@@ -5,6 +5,7 @@ const engine = @import("../engine/engine.zig");
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
+        .id = .TestScene2,
         .name = "test",
         .load = TestScene.load,
         .unload = TestScene.unload,
@@ -15,7 +16,7 @@ pub fn getScene() engine.SceneDescriptor {
 }
 
 const TestScene = struct {
-    const Self = TestScene;
+    const Self = @This();
 
     // per scene data
     a: i32,
@@ -44,8 +45,8 @@ const TestScene = struct {
         _ = self;
 
         if (context.input_state.consumeKeyDownEvent(.escape)) {
-            context.scene_commands.change_scene = true;
-            context.scene_commands.new_scene_name = "menu";
+            // context.scene_commands.change_scene = true;
+            // context.scene_commands.new_scene_name = "menu";
         }
 
         if (context.input_state.consumeKeyDownEvent(.space)) {

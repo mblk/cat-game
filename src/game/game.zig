@@ -43,3 +43,4 @@ pub const WorldImportDialog = @import("ui/editor/world_import_dialog.zig").World
 pub const WorldExportDialog = @import("ui/editor/world_export_dialog.zig").WorldExportDialog;
 
 pub const VictoryDialog = @import("ui/game/victory_dialog.zig").VictoryDialog;
+pub const PauseDialog = @import("ui/game/pause_dialog.zig").PauseDialog;

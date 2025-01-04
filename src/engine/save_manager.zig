@@ -173,9 +173,21 @@ pub const SaveManager = struct {
             });
         }
 
+        const entries_sorted: []SaveInfoEntry = try entries.toOwnedSlice();
+
+        std.mem.sort(SaveInfoEntry, entries_sorted, {}, compareEntries);
+
         return SaveInfos{
             .allocator = allocator,
-            .entries = try entries.toOwnedSlice(),
+            .entries = entries_sorted,
         };
+    }
+
+    fn compareEntries(_: void, lhs: SaveInfoEntry, rhs: SaveInfoEntry) bool {
+        return compareStrings({}, lhs.name, rhs.name);
+    }
+
+    fn compareStrings(_: void, lhs: []const u8, rhs: []const u8) bool {
+        return std.mem.order(u8, lhs, rhs).compare(std.math.CompareOperator.lt);
     }
 };

@@ -7,6 +7,7 @@ const Color = engine.Color;
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
+        .id = .Renderer2DTest,
         .name = "renderer_2d_test",
         .load = Renderer2DTestScene.load,
         .unload = Renderer2DTestScene.unload,
@@ -17,7 +18,7 @@ pub fn getScene() engine.SceneDescriptor {
 }
 
 const Renderer2DTestScene = struct {
-    const Self = Renderer2DTestScene;
+    const Self = @This();
 
     camera: engine.Camera,
     renderer: engine.Renderer2D,

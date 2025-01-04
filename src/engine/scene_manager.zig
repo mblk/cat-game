@@ -11,10 +11,10 @@ const ContentManager = @import("content_manager.zig").ContentManager;
 const SaveManager = @import("save_manager.zig").SaveManager;
 
 const TrackingAllocator = @import("../utils/tracking_allocator.zig").TrackingAllocator;
-const TrackingAllocatorStats = @import("../utils/tracking_allocator").TrackingAllocatorStats;
 
 pub const SceneDescriptor = struct {
     // desc
+    id: SceneId,
     name: []const u8,
     // vtable
     load: *const fn (context: *const LoadContext) anyerror!*anyopaque,
@@ -46,6 +46,7 @@ pub const LoadContext = struct {
     per_frame_allocator: std.mem.Allocator,
     content_manager: *ContentManager,
     save_manager: *SaveManager,
+    scene_args: SceneArgs,
 };
 
 pub const UnloadContext = struct {
@@ -83,9 +84,30 @@ pub const DrawUiContext = struct {
 
 pub const SceneCommandBuffer = struct {
     exit: bool,
-    change_scene: bool,
-    new_scene_name: []const u8,
-    // TODO new scene args?
+    new_scene: ?SceneArgs,
+};
+
+pub const SceneId = enum {
+    Menu,
+    LevelSelect,
+    Game,
+
+    Renderer2DTest,
+    TestScene1,
+    TestScene2,
+};
+
+pub const SceneArgs = union(SceneId) {
+    Menu: void,
+    LevelSelect: void,
+    Game: struct {
+        edit_mode: bool,
+        level_name: ?[]const u8, // Must be freed by target-scene
+    },
+
+    Renderer2DTest: void,
+    TestScene1: void,
+    TestScene2: void,
 };
 
 pub const SceneManager = struct {
@@ -131,24 +153,24 @@ pub const SceneManager = struct {
 
     pub fn registerScene(self: *SceneManager, scene_descriptor: SceneDescriptor) !void {
         std.log.info("register new scene: {s}", .{scene_descriptor.name});
+
+        if (self.getSceneById(scene_descriptor.id) != null) {
+            std.log.err("scene already registered: {any}", .{scene_descriptor.id});
+            std.debug.assert(false);
+            return;
+        }
+
         try self.all_scenes.append(scene_descriptor);
     }
 
-    pub fn switchScene(self: *SceneManager, new_scene_name: []const u8) void {
-        std.log.info("switch scene: {s}", .{new_scene_name});
+    pub fn switchScene(self: *SceneManager, new_scene_args: SceneArgs) void {
+        std.log.info("switch scene: {any}", .{new_scene_args});
 
         // unload current scene
         self.unloadCurrentScene();
 
         // load new scene
-        const maybe_new_scene = self.getSceneByName(new_scene_name);
-        if (maybe_new_scene) |new_scene| {
-            self.loadNewScene(new_scene) catch |e| {
-                std.log.err("failed to lead new scene: {any}", .{e});
-
-                self.active_scene = null;
-            };
-        }
+        self.loadNewScene(new_scene_args);
     }
 
     fn unloadCurrentScene(self: *SceneManager) void {
@@ -163,20 +185,32 @@ pub const SceneManager = struct {
         }
     }
 
-    fn loadNewScene(self: *SceneManager, scene_descriptor: SceneDescriptor) !void {
-        std.log.info("loading scene: {s}", .{scene_descriptor.name});
+    fn loadNewScene(self: *SceneManager, new_scene_args: SceneArgs) void {
+        const new_scene_id: SceneId = std.meta.activeTag(new_scene_args);
 
-        const load_context = LoadContext{
-            .allocator = self.allocator,
-            .per_frame_allocator = self.per_frame_allocator,
-            .content_manager = self.content_manager,
-            .save_manager = self.save_manager,
-        };
+        if (self.getSceneById(new_scene_id)) |new_scene_desc| {
+            const load_context = LoadContext{
+                .allocator = self.allocator,
+                .per_frame_allocator = self.per_frame_allocator,
+                .content_manager = self.content_manager,
+                .save_manager = self.save_manager,
+                .scene_args = new_scene_args,
+            };
 
-        self.active_scene = Scene{
-            .descriptor = scene_descriptor,
-            .self_ptr = try scene_descriptor.load(&load_context),
-        };
+            const self_ptr = new_scene_desc.load(&load_context) catch |e| {
+                std.log.err("failed to load scene: {any}", .{e});
+
+                self.active_scene = null;
+                return;
+            };
+
+            self.active_scene = Scene{
+                .descriptor = new_scene_desc,
+                .self_ptr = self_ptr,
+            };
+        } else {
+            std.log.err("scene not found: {any}", .{new_scene_id});
+        }
     }
 
     pub fn runMainLoop(self: *SceneManager) void {
@@ -191,8 +225,7 @@ pub const SceneManager = struct {
 
             var scene_command_buffer = SceneCommandBuffer{
                 .exit = false,
-                .change_scene = false,
-                .new_scene_name = undefined,
+                .new_scene = null,
             };
 
             // one frame
@@ -202,8 +235,9 @@ pub const SceneManager = struct {
             if (scene_command_buffer.exit) {
                 self.window.setShouldClose(true);
             }
-            if (scene_command_buffer.change_scene) {
-                self.switchScene(scene_command_buffer.new_scene_name);
+            //if (scene_command_buffer.change_scene) {
+            if (scene_command_buffer.new_scene) |new_scene| {
+                self.switchScene(new_scene);
             }
         }
     }
@@ -295,6 +329,8 @@ pub const SceneManager = struct {
         zgui.setNextWindowPos(.{ .x = 10.0, .y = 50.0, .cond = .appearing });
         //zgui.setNextWindowSize(.{ .w = 200, .h = 600 });
 
+        _ = command_buffer;
+
         if (zgui.begin("Debug", .{})) {
             zgui.text("dt {d:.3} fps {d:.1}", .{ dt, 1.0 / dt });
 
@@ -311,8 +347,8 @@ pub const SceneManager = struct {
                     const s = std.fmt.bufPrintZ(&buffer, "switch to {s}", .{scene.name}) catch unreachable;
 
                     if (zgui.button(s, .{})) {
-                        command_buffer.change_scene = true;
-                        command_buffer.new_scene_name = scene.name;
+                        // command_buffer.change_scene = true;
+                        // command_buffer.new_scene_name = scene.name;
                     }
                 }
             }
@@ -351,14 +387,25 @@ pub const SceneManager = struct {
         zgui.end();
     }
 
-    fn getSceneByName(self: SceneManager, name: []const u8) ?SceneDescriptor {
+    // fn getSceneByName(self: SceneManager, name: []const u8) ?SceneDescriptor {
+    //     for (self.all_scenes.items) |scene| {
+    //         if (std.mem.eql(u8, name, scene.name)) {
+    //             return scene;
+    //         }
+    //     }
+
+    //     std.log.err("scene not found: {s}", .{name});
+    //     return null;
+    // }
+
+    fn getSceneById(self: SceneManager, id: SceneId) ?SceneDescriptor {
         for (self.all_scenes.items) |scene| {
-            if (std.mem.eql(u8, name, scene.name)) {
+            if (scene.id == id) {
                 return scene;
             }
         }
 
-        std.log.err("scene not found: {s}", .{name});
+        //std.log.err("scene not found: {any}", .{id});
         return null;
     }
 };

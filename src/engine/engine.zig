@@ -4,6 +4,8 @@ pub const InputState = @import("input_state.zig");
 pub const SceneManager = @import("scene_manager.zig").SceneManager;
 pub const SceneDescriptor = @import("scene_manager.zig").SceneDescriptor;
 pub const Scene = @import("scene_manager.zig").Scene;
+pub const SceneId = @import("scene_manager.zig").SceneId;
+pub const SceneArgs = @import("scene_manager.zig").SceneArgs;
 
 pub const LoadContext = @import("scene_manager.zig").LoadContext;
 pub const UnloadContext = @import("scene_manager.zig").UnloadContext;

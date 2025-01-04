@@ -5,6 +5,7 @@ const engine = @import("../engine/engine.zig");
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
+        .id = .TestScene1,
         .name = "empty",
         .load = EmptyScene.load,
         .unload = EmptyScene.unload,
@@ -15,7 +16,7 @@ pub fn getScene() engine.SceneDescriptor {
 }
 
 const EmptyScene = struct {
-    const Self = EmptyScene;
+    const Self = @This();
 
     foo: i32,
 
