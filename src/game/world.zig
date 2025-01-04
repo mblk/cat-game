@@ -430,6 +430,21 @@ pub const World = struct {
         b2.b2World_Step(self.world_id, physics_time_step, physics_sub_step_count);
     }
 
+    pub fn checkWinCondition(self: *Self) bool {
+        for (self.players.items) |*player| {
+            const t = player.getTransform();
+            const dist_to_finish = vec2.dist(t.pos, self.settings.finish_position);
+
+            //std.log.info("dist {d}", .{dist_to_finish});
+
+            if (dist_to_finish < 2.5) { // xxx
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     //
     // ground segments
     //

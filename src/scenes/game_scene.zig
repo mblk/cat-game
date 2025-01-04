@@ -29,6 +29,7 @@ const WorldRenderer = game.WorldRenderer;
 
 const WorldImportDialog = game.WorldImportDialog;
 const WorldExportDialog = game.WorldExportDialog;
+const VictoryDialog = game.VictoryDialog;
 
 pub fn getScene() engine.SceneDescriptor {
     return engine.SceneDescriptor{
@@ -55,6 +56,12 @@ pub fn getScene() engine.SceneDescriptor {
 // - spawn debris from destroyable things?
 //
 
+const SimSpeed = union(enum) {
+    Paused: void,
+    //SingleStep: void,
+    Running: f32,
+};
+
 const GameScene = struct {
     const Self = GameScene;
 
@@ -68,6 +75,7 @@ const GameScene = struct {
 
     // state
     world: World,
+    sim_speed: SimSpeed = .{ .Running = 1.0 },
 
     // visual
     camera: engine.Camera,
@@ -90,6 +98,8 @@ const GameScene = struct {
     // editor ui
     import_world_dialog: WorldImportDialog = undefined,
     export_world_dialog: WorldExportDialog = undefined,
+    victory_dialog: VictoryDialog = undefined,
+    victory_condition_detected: bool = false,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
         // TODO correct error handling (eg. errdefer)
@@ -122,14 +132,20 @@ const GameScene = struct {
             .world = &self.world,
         });
 
+        try tool_manager.register(game.WorldSettingsTool.getVTable());
         try tool_manager.register(game.GroundEditTool.getVTable());
         try tool_manager.register(game.VehicleEditTool.getVTable());
         try tool_manager.register(game.ItemEditTool.getVTable());
-        try tool_manager.register(game.WorldSettingsTool.getVTable());
         self.tool_manager = tool_manager;
 
         self.import_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
         self.export_world_dialog.init(&self.world, context.save_manager, context.allocator, context.per_frame_allocator);
+        self.victory_dialog.init();
+
+        self.victory_dialog.continue_cb = .{
+            .function = victoryDialogContinue,
+            .context = self,
+        };
 
         // -----------
         if (true) {
@@ -145,11 +161,21 @@ const GameScene = struct {
         return self;
     }
 
+    fn victoryDialogContinue(data: void, context: *anyopaque) void {
+        const self: *Self = @ptrCast(@alignCast(context));
+
+        _ = data;
+        _ = self;
+
+        std.log.info("continue ...", .{});
+    }
+
     fn unload(self_ptr: *anyopaque, context: *const engine.UnloadContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        self.import_world_dialog.deinit();
+        self.victory_dialog.deinit();
         self.export_world_dialog.deinit();
+        self.import_world_dialog.deinit();
 
         self.tool_manager.destroy();
         self.world_renderer.deinit();
@@ -161,8 +187,11 @@ const GameScene = struct {
         context.allocator.destroy(self);
     }
 
-    fn update(self_ptr: *anyopaque, context: *const engine.UpdateContext) void {
+    fn update(self_ptr: *anyopaque, context: *const engine.UpdateContext) void { // TODO figure out optimal order of things
         const self: *Self = @ptrCast(@alignCast(self_ptr));
+
+        const is_paused = self.sim_speed == .Paused or
+            self.victory_dialog.is_open;
 
         // change mode?
         if (context.input_state.consumeKeyDownEvent(.F1)) {
@@ -185,13 +214,14 @@ const GameScene = struct {
         self.prev_mouse_position = mouse_position;
 
         // update physics
-        // TODO figure out optimal order of things
-        if (self.world.players.items.len > 0) {
-            const player: *Player = &self.world.players.items[0];
-            player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play);
-        }
+        if (!is_paused) {
+            if (self.world.players.items.len > 0) {
+                const player: *Player = &self.world.players.items[0];
+                player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play);
+            }
 
-        self.world.update(context.dt, context.per_frame_allocator, context.input_state, &self.renderer);
+            self.world.update(context.dt, context.per_frame_allocator, context.input_state, &self.renderer);
+        }
 
         if (self.world.players.items.len > 0) {
             const player: *Player = &self.world.players.items[0];
@@ -242,6 +272,21 @@ const GameScene = struct {
         if (context.input_state.consumeKeyDownEvent(.escape)) {
             context.scene_commands.exit = true;
         }
+
+        // victory?
+        if (!self.victory_condition_detected) {
+            if (self.world.checkWinCondition()) {
+                self.victory_condition_detected = true;
+                std.log.info("victory", .{});
+                self.victory_dialog.open();
+            }
+        } else {
+            // TODO maybe need a timer or some margin to prevent flickering?
+            if (!self.world.checkWinCondition()) {
+                std.log.info("reset victory", .{});
+                self.victory_condition_detected = false;
+            }
+        }
     }
 
     fn render(self_ptr: *anyopaque, context: *const engine.RenderContext) void {
@@ -274,6 +319,13 @@ const GameScene = struct {
         if (self.master_mode == .Edit) {
             self.drawEditUi(context);
         }
+
+        if (self.master_mode == .Play) {
+            //
+        }
+
+        //
+        self.victory_dialog.drawUi();
     }
 
     fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {

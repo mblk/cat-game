@@ -416,13 +416,13 @@ pub const WorldRenderer = struct {
 
     fn renderScore(self: *Self, player: *const Player, camera: *const Camera) void {
         //
-        //_ = self;
-        //_ = player;
+        _ = self;
+        _ = player;
         _ = camera;
 
-        const p = player.getTransform().pos.add(vec2.init(0, 5));
+        //const p = player.getTransform().pos.add(vec2.init(0, 5));
 
-        self.renderer2D.addText(p, Color.black, "eaten={d:.1} burned={d:.1}", .{ player.total_kcal_eaten, player.total_kcal_burned });
+        //self.renderer2D.addText(p, Color.black, "eaten={d:.1} burned={d:.1}", .{ player.total_kcal_eaten, player.total_kcal_burned });
     }
 
     fn renderStartFinish(self: *Self, world: *const World) void {

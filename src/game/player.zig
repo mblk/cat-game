@@ -179,8 +179,6 @@ pub const Player = struct {
         self.hint_text = null;
 
         if (!control_enabled) {
-            self.show_hand = false;
-
             if (self.has_mouse_joint) {
                 b2.b2DestroyJoint(self.mouse_joint);
 
@@ -210,7 +208,7 @@ pub const Player = struct {
         const err_vx = target_vx - curr_vx;
         const f_x = err_vx * 2.5;
 
-        if (@abs(f_x) > 0.1) {
+        if (@abs(target_vx) > 0.1 and @abs(f_x) > 0.1) {
             b2.b2Body_ApplyForceToCenter(self.body_id, b2.b2Vec2{ .x = f_x, .y = 0 }, true);
 
             const kcal_cost: f32 = @abs(f_x) * dt * 1.0;

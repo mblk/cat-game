@@ -41,3 +41,5 @@ pub const WorldRenderer = @import("renderer/world_renderer.zig").WorldRenderer;
 
 pub const WorldImportDialog = @import("ui/editor/world_import_dialog.zig").WorldImportDialog;
 pub const WorldExportDialog = @import("ui/editor/world_export_dialog.zig").WorldExportDialog;
+
+pub const VictoryDialog = @import("ui/game/victory_dialog.zig").VictoryDialog;

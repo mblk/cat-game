@@ -138,7 +138,9 @@ pub const WorldImporter = struct {
 
         // settings
         world.settings.size = world_data.settings.size;
+        world.settings.size_changed = true;
         world.settings.gravity = world_data.settings.gravity;
+        world.settings.gravity_changed = true;
         world.settings.start_position = world_data.settings.start_position;
         world.settings.finish_position = world_data.settings.finish_position;
 
