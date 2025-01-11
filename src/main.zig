@@ -74,8 +74,9 @@ pub fn main() !void {
     const per_frame_alloc = tracking_arena;
     // -----------------------------------
 
-    var content_manager = try engine.ContentManager.create(long_term_alloc);
-    defer content_manager.destroy();
+    var content_manager: engine.ContentManager = undefined;
+    try content_manager.init(long_term_alloc, true);
+    defer content_manager.deinit();
 
     var save_manager = try engine.SaveManager.create(long_term_alloc);
     defer save_manager.free();
@@ -137,9 +138,15 @@ pub fn main() !void {
     try scene_manager.registerScene(GameScene.getScene());
     try scene_manager.registerScene(LevelSelectScene.getScene());
 
-    scene_manager.switchScene(.Menu);
-    //scene_manager.switchScene("menu");
-    //scene_manager.switchScene("game");
+    //scene_manager.switchScene(.Menu);
+
+    scene_manager.switchScene(.{
+        .Game = .{
+            .edit_mode = false,
+            .level_name = "world_1",
+            .level_name_alloc = null,
+        },
+    });
 
     scene_manager.runMainLoop();
 }

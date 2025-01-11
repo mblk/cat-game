@@ -179,6 +179,6 @@ const Renderer2DTestScene = struct {
 
         _ = context;
 
-        self.renderer.render_to_zgui(&self.camera);
+        self.renderer.renderToZGui(&self.camera);
     }
 };

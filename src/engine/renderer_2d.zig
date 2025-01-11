@@ -41,7 +41,7 @@ const TextData = struct {
 
 const TextureData = struct {
     //id: u32,
-    texture: Texture,
+    texture: *Texture,
 };
 
 pub const Renderer2D = struct {
@@ -50,10 +50,10 @@ pub const Renderer2D = struct {
     allocator: std.mem.Allocator,
     content_manager: *ContentManager,
 
-    point_shader: Shader,
-    line_shader: Shader,
-    triangle_shader: Shader,
-    textured_triangle_shader: Shader,
+    point_shader: *Shader,
+    line_shader: *Shader,
+    triangle_shader: *Shader,
+    textured_triangle_shader: *Shader,
 
     point_vbo: c_uint,
     point_vao: c_uint,
@@ -82,10 +82,10 @@ pub const Renderer2D = struct {
     ) !void {
 
         //
-        const point_shader = try content_manager.loadShader(allocator, "point.vs", "point.fs");
-        const line_shader = try content_manager.loadShader(allocator, "line.vs", "line.fs");
-        const triangle_shader = try content_manager.loadShader(allocator, "triangle.vs", "triangle.fs");
-        const textured_triangle_shader = try content_manager.loadShader(allocator, "textured_triangle.vs", "textured_triangle.fs");
+        const point_shader = try content_manager.getShader("point.vs", "point.fs");
+        const line_shader = try content_manager.getShader("line.vs", "line.fs");
+        const triangle_shader = try content_manager.getShader("triangle.vs", "triangle.fs");
+        const textured_triangle_shader = try content_manager.getShader("textured_triangle.vs", "textured_triangle.fs");
 
         // point buffers
         var point_vao: c_uint = undefined;
@@ -238,9 +238,6 @@ pub const Renderer2D = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.textures.items) |*texture| {
-            texture.texture.free();
-        }
         self.textures.deinit();
 
         self.text_data.deinit();
@@ -260,18 +257,13 @@ pub const Renderer2D = struct {
 
         gl.deleteVertexArrays(1, &self.textured_triangle_vao);
         gl.deleteBuffers(1, &self.textured_triangle_vbo);
-
-        self.point_shader.free();
-        self.line_shader.free();
-        self.triangle_shader.free();
-        self.textured_triangle_shader.free();
     }
 
     pub fn loadTexture(self: *Self, name: []const u8) !u32 {
 
         // TODO check if already loaded
 
-        const texture = try self.content_manager.loadTexture(self.allocator, name);
+        const texture: *Texture = try self.content_manager.getTexture(name);
 
         const index: u32 = @intCast(self.textures.items.len);
 
@@ -637,7 +629,7 @@ pub const Renderer2D = struct {
         }
     }
 
-    pub fn render_to_zgui(self: *Self, camera: *Camera) void {
+    pub fn renderToZGui(self: *Self, camera: *Camera) void {
         if (self.text_data.items.len > 0) {
             zgui.setNextWindowPos(.{
                 .x = 0,

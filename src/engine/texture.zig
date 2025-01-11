@@ -5,26 +5,59 @@ const zstbi = @import("zstbi");
 
 pub const TextureError = error{
     ParseError,
+    OutOfMemory,
 };
 
 pub const Texture = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+    name: []const u8,
     id: c_uint,
 
-    pub fn loadFromMemory(data: []const u8) TextureError!Texture {
+    pub fn init(allocator: std.mem.Allocator, name: []const u8, data: []const u8) TextureError!Texture {
+        //
+        const name_copy = try allocator.dupe(u8, name);
+        const id = try loadFromMemory(name, data);
+
+        return Texture{
+            .allocator = allocator,
+            .name = name_copy,
+            .id = id,
+        };
+    }
+
+    pub fn reload(self: *Self, data: []const u8) TextureError!void {
+        std.log.info("reloading texture {s} ...", .{self.name});
+        //
+        const id = try loadFromMemory(self.name, data);
+
+        // Only if load was successful
+        gl.deleteTextures(1, &self.id);
+        self.id = id;
+    }
+
+    pub fn free(self: *Texture) void {
+        //
+        gl.deleteTextures(1, &self.id);
+
+        self.allocator.free(self.name);
+    }
+
+    fn loadFromMemory(name: []const u8, data: []const u8) !c_uint {
         //
         var image = zstbi.Image.loadFromMemory(data, 0) catch |e| {
-            std.log.err("loadfromMemory faild: {any}", .{e});
+            std.log.err("loadfromMemory failed: {any}", .{e});
             return TextureError.ParseError;
         };
         defer image.deinit();
 
-        std.log.info("image: w={d} h={d} components={d} bytes_per_comp={d} byter_per_row={d} is_hdr={any}", .{
+        std.log.info("{s}: size {d}x{d} components {d}x{d}", .{
+            name,
             image.width,
             image.height,
             image.num_components,
             image.bytes_per_component,
-            image.bytes_per_row,
-            image.is_hdr,
         });
 
         // Create and bind texture1 resource
@@ -54,14 +87,7 @@ pub const Texture = struct {
 
         gl.bindTexture(gl.TEXTURE_2D, 0);
 
-        return Texture{
-            .id = id,
-        };
-    }
-
-    pub fn free(self: *Texture) void {
-        //
-        gl.deleteTextures(1, &self.id);
+        return id;
     }
 
     // TODO bind/unbind-etc?

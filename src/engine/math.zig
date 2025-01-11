@@ -68,6 +68,10 @@ pub const vec2 = packed struct {
         return self.scale(1.0 / self.len());
     }
 
+    pub fn dot(self: vec2, other: vec2) f32 {
+        return self.x * other.x + self.y * other.y;
+    }
+
     pub fn mulPairwise(self: vec2, other: vec2) vec2 {
         return vec2{
             .x = self.x * other.x,
@@ -95,6 +99,24 @@ pub const vec2 = packed struct {
 
     pub fn dist(a: vec2, b: vec2) f32 {
         return std.math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+    }
+
+    // -pi .. 0 .. pi
+    // 0 = right
+    // pi/2 = up
+    // -pi/2 = down
+    pub fn angle(self: vec2) f32 {
+        return std.math.atan2(self.y, self.x);
+    }
+
+    pub fn rotate(self: vec2, a: f32) vec2 {
+        const sin = std.math.sin(a);
+        const cos = std.math.cos(a);
+
+        return vec2{
+            .x = cos * self.x - sin * self.y,
+            .y = sin * self.x + cos * self.y,
+        };
     }
 
     pub fn format(self: vec2, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {

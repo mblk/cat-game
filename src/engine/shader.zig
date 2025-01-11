@@ -7,15 +7,67 @@ pub const ShaderError = error{
     VertexShaderError,
     FragmentShaderError,
     ProgramLinkError,
+    OutOfMemory,
 };
 
 pub const Shader = struct {
-    id: c_uint,
+    const Self = @This();
 
-    pub fn loadFromSource(
+    allocator: std.mem.Allocator,
+    id: c_uint,
+    vs_name: []const u8,
+    fs_name: []const u8,
+
+    pub fn init(
+        self: *Self,
+        allocator: std.mem.Allocator,
+        vs_name: []const u8,
+        fs_name: []const u8,
         vertex_shader_source: [:0]const u8,
         fragment_shader_source: [:0]const u8,
-    ) ShaderError!Shader {
+    ) ShaderError!void {
+        //
+        const id = try compileProgram(vs_name, fs_name, vertex_shader_source, fragment_shader_source);
+
+        const vs_name_copy = try allocator.dupe(u8, vs_name);
+        const fs_name_copy = try allocator.dupe(u8, fs_name);
+
+        self.* = .{
+            .allocator = allocator,
+            .id = id,
+            .vs_name = vs_name_copy,
+            .fs_name = fs_name_copy,
+        };
+    }
+
+    pub fn reload(
+        self: *Self,
+        vertex_shader_source: [:0]const u8,
+        fragment_shader_source: [:0]const u8,
+    ) ShaderError!void {
+        std.log.info("reloading shader {s}+{s} ...", .{ self.vs_name, self.fs_name });
+
+        const id = try compileProgram(self.vs_name, self.fs_name, vertex_shader_source, fragment_shader_source);
+
+        // only if reload was successul
+        gl.deleteProgram(self.id);
+        self.id = id;
+    }
+
+    pub fn deinit(self: *Self) void {
+        //
+        gl.deleteProgram(self.id);
+
+        self.allocator.free(self.vs_name);
+        self.allocator.free(self.fs_name);
+    }
+
+    fn compileProgram(
+        vs_name: []const u8,
+        fs_name: []const u8,
+        vertex_shader_source: [:0]const u8,
+        fragment_shader_source: [:0]const u8,
+    ) ShaderError!c_uint {
 
         // vertex shader
         const vertex_shader = gl.createShader(gl.VERTEX_SHADER);
@@ -35,7 +87,7 @@ pub const Shader = struct {
 
                 var info_log: [512]u8 = [_]u8{0} ** 512;
                 gl.getShaderInfoLog(vertex_shader, info_log.len, 0, &info_log);
-                std.log.err("vertex shader error: {s}", .{info_log});
+                std.log.err("error in vertex shader {s}: {s}", .{ vs_name, info_log });
                 return ShaderError.VertexShaderError;
             }
         }
@@ -54,7 +106,7 @@ pub const Shader = struct {
             if (success == 0) {
                 var info_log: [512]u8 = [_]u8{0} ** 512;
                 gl.getShaderInfoLog(fragment_shader, info_log.len, 0, &info_log);
-                std.log.err("fragment shader error: {s}\n", .{info_log});
+                std.log.err("error in fragment shader {s}: {s}\n", .{ fs_name, info_log });
                 return ShaderError.FragmentShaderError;
             }
         }
@@ -73,18 +125,12 @@ pub const Shader = struct {
             if (success == 0) {
                 var info_log: [512]u8 = [_]u8{0} ** 512;
                 gl.getProgramInfoLog(shader_program, info_log.len, 0, &info_log);
-                std.log.err("link error: {s}\n", .{info_log});
+                std.log.err("link error in program {s}+{s}: {s}\n", .{ vs_name, fs_name, info_log });
                 return ShaderError.ProgramLinkError;
             }
         }
 
-        return Shader{
-            .id = shader_program,
-        };
-    }
-
-    pub fn free(self: Shader) void {
-        gl.deleteProgram(self.id);
+        return shader_program;
     }
 
     pub fn bind(self: Shader) void {

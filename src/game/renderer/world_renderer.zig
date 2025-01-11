@@ -374,22 +374,87 @@ pub const WorldRenderer = struct {
     fn renderPlayer(self: *Self, player: *const Player) void {
         const t = player.getTransform();
 
-        const hs = vec2.init(1.0, 1.0);
-        const center_local = vec2.init(0, 0.4);
-        const points_local = [4]vec2{
-            center_local.add(vec2.init(-hs.x, -hs.y)),
-            center_local.add(vec2.init(hs.x, -hs.y)),
-            center_local.add(vec2.init(hs.x, hs.y)),
-            center_local.add(vec2.init(-hs.x, hs.y)),
-        };
-        const points_world = [4]vec2{
-            t.transformLocalToWorld(points_local[0]),
-            t.transformLocalToWorld(points_local[1]),
-            t.transformLocalToWorld(points_local[2]),
-            t.transformLocalToWorld(points_local[3]),
-        };
+        // def
+        const spine_length: f32 = 0.5;
+        const neck_length: f32 = 0.25;
+        const tail_length: f32 = 0.5;
+        const aft_leg_length: f32 = 0.5;
+        const fwd_leg_length: f32 = 0.5;
 
-        self.renderer2D.addTexturedQuad(points_world, Color.white, self.tex_cat1);
+        // poses:
+        // - sitting (possibly on slope)
+        // - standing (")
+        // - climbing on side (")
+        // - climbing on ceiling (")
+
+        const sk_center = vec2.init(0, 0);
+
+        const sk_head_angle: f32 = std.math.degreesToRadians(30); // 30deg up
+        const sk_tail_angle: f32 = std.math.degreesToRadians(45); // 45deg down
+
+        const sk_aft = sk_center.add(vec2.init(-spine_length * 0.5, 0));
+        const sk_fwd = sk_center.add(vec2.init(spine_length * 0.5, 0));
+        const sk_head = sk_fwd.add(vec2.init(neck_length, 0).rotate(sk_head_angle)); // rotate
+        const sk_tail = sk_aft.add(vec2.init(-tail_length, 0).rotate(sk_tail_angle)); // rotate
+
+        const sk_aft_leg1 = sk_aft.add(vec2.init(0, -aft_leg_length));
+        const sk_aft_leg2 = sk_aft.add(vec2.init(0, -aft_leg_length));
+        const sk_fwd_leg1 = sk_fwd.add(vec2.init(0, -fwd_leg_length));
+        const sk_fwd_leg2 = sk_fwd.add(vec2.init(0, -fwd_leg_length));
+
+        // ------------
+
+        const sk_aft_world = t.transformLocalToWorld(sk_aft);
+        const sk_fwd_world = t.transformLocalToWorld(sk_fwd);
+        const sk_head_world = t.transformLocalToWorld(sk_head);
+        const sk_tail_world = t.transformLocalToWorld(sk_tail);
+
+        const sk_aft_leg1_world = t.transformLocalToWorld(sk_aft_leg1);
+        const sk_aft_leg2_world = t.transformLocalToWorld(sk_aft_leg2);
+        const sk_fwd_leg1_world = t.transformLocalToWorld(sk_fwd_leg1);
+        const sk_fwd_leg2_world = t.transformLocalToWorld(sk_fwd_leg2);
+
+        self.renderer2D.addLine(sk_aft_world, sk_fwd_world, Color.white);
+        self.renderer2D.addLine(sk_aft_world, sk_tail_world, Color.white);
+        self.renderer2D.addLine(sk_fwd_world, sk_head_world, Color.white);
+
+        self.renderer2D.addLine(sk_aft_world, sk_aft_leg1_world, Color.white);
+        self.renderer2D.addLine(sk_aft_world, sk_aft_leg2_world, Color.white);
+        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg1_world, Color.white);
+        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg2_world, Color.white);
+
+        // ------------
+
+        //const fur_color = Color.init(51, 51, 51, 255);
+
+        // const front_circle_local = vec2.init(0.25 / 2.0, 0);
+        // const aft_circle_local = vec2.init(-0.25 / 2.0, 0);
+        // const head_circle_local = vec2.init(0.3 / 2.0, 0.3 / 2.0);
+
+        // const front_circle_world = t.transformLocalToWorld(front_circle_local);
+        // const aft_circle_world = t.transformLocalToWorld(aft_circle_local);
+        // const head_circle_world = t.transformLocalToWorld(head_circle_local);
+
+        // self.renderer2D.addSolidCircle(front_circle_world, 0.25 / 2.0, fur_color);
+        // self.renderer2D.addSolidCircle(aft_circle_world, 0.25 / 2.0, fur_color);
+        // self.renderer2D.addSolidCircle(head_circle_world, 0.20 / 2.0, fur_color);
+
+        // const hs = vec2.init(1.0, 1.0);
+        // const center_local = vec2.init(0, 0.4);
+        // const points_local = [4]vec2{
+        //     center_local.add(vec2.init(-hs.x, -hs.y)),
+        //     center_local.add(vec2.init(hs.x, -hs.y)),
+        //     center_local.add(vec2.init(hs.x, hs.y)),
+        //     center_local.add(vec2.init(-hs.x, hs.y)),
+        // };
+        // const points_world = [4]vec2{
+        //     t.transformLocalToWorld(points_local[0]),
+        //     t.transformLocalToWorld(points_local[1]),
+        //     t.transformLocalToWorld(points_local[2]),
+        //     t.transformLocalToWorld(points_local[3]),
+        // };
+
+        // self.renderer2D.addTexturedQuad(points_world, Color.white, self.tex_cat1);
 
         if (player.show_hand) {
             const hand_color1 = Color.init(63, 63, 63, 255);
@@ -411,6 +476,12 @@ pub const WorldRenderer = struct {
 
         if (player.show_hint) {
             self.renderer2D.addText(player.hint_position, Color.white, "{s}", .{player.hint_text.?});
+        }
+
+        {
+            const p1 = t.pos.add(vec2.init(0, 2));
+            const p2 = p1.add(vec2.init(1, 0));
+            self.renderer2D.addLine(p1, p2, Color.white);
         }
     }
 

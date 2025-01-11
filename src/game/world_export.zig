@@ -171,8 +171,9 @@ pub const WorldImporter = struct {
         }
 
         // xxx
-        world.createPlayer(vec2.init(0, 0));
-        world.movePlayersToStart();
+        world.createPlayer(world.settings.start_position);
+        //world.createPlayer(vec2.init(0, 0));
+        //world.movePlayersToStart();
         // xxx
     }
 };

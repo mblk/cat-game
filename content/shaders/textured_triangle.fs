@@ -12,9 +12,13 @@ void main()
 {
     vec4 c = texture(uTextures[fTexId], fTexCoord) * fColor;
 
+    c.r *= 1.1;
+
     if (c.a < 0.5) {
         discard;
     } else {
         FragColor = c;
     }
+
+    //FragColor = vec4(1,1,1,1);
 }

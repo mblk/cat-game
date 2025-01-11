@@ -102,7 +102,8 @@ pub const SceneArgs = union(SceneId) {
     LevelSelect: void,
     Game: struct {
         edit_mode: bool,
-        level_name: ?[]const u8, // Must be freed by target-scene
+        level_name: ?[]const u8,
+        level_name_alloc: ?std.mem.Allocator, // level_name must be freed by target-scene if this is set
     },
 
     Renderer2DTest: void,
@@ -248,6 +249,9 @@ pub const SceneManager = struct {
         //
         // update
         //
+
+        self.content_manager.update();
+
         var input_state: InputState = undefined;
         self.window.processEvents(&input_state);
 
@@ -383,6 +387,12 @@ pub const SceneManager = struct {
                     zgui.text("max memory used: {d}", .{stats.max_memory_used});
                 }
             }
+
+            // if (zgui.collapsingHeader("shaders", .{})) {
+            //     for (self.content_manager.shaders.items) |*shader| {
+            //         zgui.text("ogl id={d} modified={any}", .{ shader.id, shader.modified });
+            //     }
+            // }
         }
         zgui.end();
     }

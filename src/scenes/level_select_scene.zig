@@ -78,8 +78,9 @@ const LevelSelectScene = struct {
             if (zgui.button("Empty (play)", .{ .w = button_w, .h = button_h })) {
                 context.scene_commands.new_scene = .{
                     .Game = .{
-                        .level_name = null,
                         .edit_mode = false,
+                        .level_name = null,
+                        .level_name_alloc = null,
                     },
                 };
             }
@@ -87,8 +88,9 @@ const LevelSelectScene = struct {
             if (zgui.button("Empty (edit)", .{ .w = button_w, .h = button_h })) {
                 context.scene_commands.new_scene = .{
                     .Game = .{
-                        .level_name = null,
                         .edit_mode = true,
+                        .level_name = null,
+                        .level_name_alloc = null,
                     },
                 };
             }
@@ -101,8 +103,9 @@ const LevelSelectScene = struct {
                 if (zgui.button(s1, .{ .w = button_w, .h = button_h })) {
                     context.scene_commands.new_scene = .{
                         .Game = .{
-                            .level_name = context.allocator.dupe(u8, level_info.name) catch unreachable, // Must be freed by target scene
                             .edit_mode = false,
+                            .level_name = context.allocator.dupe(u8, level_info.name) catch unreachable, // Must be freed by target scene
+                            .level_name_alloc = context.allocator,
                         },
                     };
                 }
@@ -114,8 +117,9 @@ const LevelSelectScene = struct {
                 if (zgui.button(s2, .{ .w = button_w, .h = button_h })) {
                     context.scene_commands.new_scene = .{
                         .Game = .{
-                            .level_name = context.allocator.dupe(u8, level_info.name) catch unreachable, // Must be freed by target scene
                             .edit_mode = true,
+                            .level_name = context.allocator.dupe(u8, level_info.name) catch unreachable, // Must be freed by target scene
+                            .level_name_alloc = context.allocator,
                         },
                     };
                 }

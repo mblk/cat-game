@@ -229,7 +229,7 @@ pub const World = struct {
 
     pub fn deinit(self: *Self) void {
         for (self.players.items) |*player| {
-            player.destroy();
+            player.deinit();
         }
 
         for (self.items.items) |*item| {
@@ -889,7 +889,9 @@ pub const World = struct {
     //
 
     pub fn createPlayer(self: *World, position: vec2) void {
-        const player = Player.create(self, position);
+        var player: Player = undefined;
+
+        player.init(self, position);
 
         self.players.append(player) catch unreachable;
     }

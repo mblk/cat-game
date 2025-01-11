@@ -164,7 +164,9 @@ const GameScene = struct {
                 // TODO return error?
             };
 
-            context.allocator.free(level_name);
+            if (args.level_name_alloc) |alloc| {
+                alloc.free(level_name);
+            }
         }
 
         if (args.edit_mode) {
@@ -251,7 +253,7 @@ const GameScene = struct {
         if (!is_paused) {
             if (self.world.players.items.len > 0) {
                 const player: *Player = &self.world.players.items[0];
-                player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play);
+                player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play, &self.renderer);
             }
 
             self.world.update(context.dt, context.per_frame_allocator, context.input_state, &self.renderer);
@@ -303,8 +305,15 @@ const GameScene = struct {
         self.prev_mouse_position = self.camera.screenToWorld(context.input_state.mouse_position_screen);
 
         // pause?
+        // if (context.input_state.consumeKeyDownEvent(.escape)) {
+        //     self.pause_dialog.open();
+        // }
         if (context.input_state.consumeKeyDownEvent(.escape)) {
-            self.pause_dialog.open();
+            if (context.input_state.getKeyState(.left_shift)) {
+                self.pause_dialog.open();
+            } else {
+                context.scene_commands.exit = true;
+            }
         }
 
         // victory?
@@ -357,7 +366,7 @@ const GameScene = struct {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
         // xxx
-        self.renderer.render_to_zgui(&self.camera);
+        self.renderer.renderToZGui(&self.camera);
         // xxx
 
         if (self.master_mode == .Edit) {
