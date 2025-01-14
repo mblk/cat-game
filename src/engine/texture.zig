@@ -91,4 +91,15 @@ pub const Texture = struct {
     }
 
     // TODO bind/unbind-etc?
+
+    pub fn bind(self: Self) void {
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, self.id);
+    }
+
+    pub fn unbind(self: Self) void {
+        _ = self;
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, 0);
+    }
 };

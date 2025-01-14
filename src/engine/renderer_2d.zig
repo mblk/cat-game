@@ -32,6 +32,11 @@ const TexturedVertexData = struct {
     tex_id: u32,
 };
 
+const WoodVertexData = struct {
+    position: vec2,
+    texcoord: vec2,
+};
+
 const TextData = struct {
     position: vec2,
     color: Color,
@@ -54,6 +59,7 @@ pub const Renderer2D = struct {
     line_shader: *Shader,
     triangle_shader: *Shader,
     textured_triangle_shader: *Shader,
+    wood_triangle_shader: *Shader,
 
     point_vbo: c_uint,
     point_vao: c_uint,
@@ -67,13 +73,20 @@ pub const Renderer2D = struct {
     textured_triangle_vbo: c_uint,
     textured_triangle_vao: c_uint,
 
+    wood_triangle_vbo: c_uint,
+    wood_triangle_vao: c_uint,
+
     point_data: std.ArrayList(PointVertexData),
     line_data: std.ArrayList(VertexData),
     triangle_data: std.ArrayList(VertexData),
     textured_triangle_data: std.ArrayList(TexturedVertexData),
+    wood_triangle_data: std.ArrayList(WoodVertexData),
     text_data: std.ArrayList(TextData),
 
     textures: std.ArrayList(TextureData),
+    noise_texture: *Texture,
+
+    time: f32 = 0,
 
     pub fn init(
         self: *Self,
@@ -81,11 +94,16 @@ pub const Renderer2D = struct {
         content_manager: *ContentManager,
     ) !void {
 
+        // TODO: make some kind of generic datastructure for the different render-things
+
         //
         const point_shader = try content_manager.getShader("point.vs", "point.fs");
         const line_shader = try content_manager.getShader("line.vs", "line.fs");
         const triangle_shader = try content_manager.getShader("triangle.vs", "triangle.fs");
         const textured_triangle_shader = try content_manager.getShader("textured_triangle.vs", "textured_triangle.fs");
+        const wood_triangle_shader = try content_manager.getShader("wood_triangle.vs", "wood_triangle.fs");
+
+        const noise_texture = try content_manager.getTexture("noise1_256.png");
 
         // point buffers
         var point_vao: c_uint = undefined;
@@ -207,6 +225,32 @@ pub const Renderer2D = struct {
         }
         gl.bindVertexArray(0);
 
+        // wood triangle buffers
+        var wood_triangle_vao: c_uint = undefined;
+        gl.genVertexArrays(1, &wood_triangle_vao);
+
+        var wood_triangle_vbo: c_uint = undefined;
+        gl.genBuffers(1, &wood_triangle_vbo);
+
+        gl.bindVertexArray(wood_triangle_vao);
+        {
+            gl.bindBuffer(gl.ARRAY_BUFFER, wood_triangle_vbo);
+            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(WoodVertexData) * 1024, null, gl.DYNAMIC_DRAW);
+
+            const stride: usize = @sizeOf(WoodVertexData);
+            const offset0: [*c]c_uint = @offsetOf(WoodVertexData, "position");
+            const offset2: [*c]c_uint = @offsetOf(WoodVertexData, "texcoord");
+
+            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0);
+            gl.enableVertexAttribArray(0);
+
+            gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, stride, offset2);
+            gl.enableVertexAttribArray(1);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
+        }
+        gl.bindVertexArray(0);
+
         // -------
 
         self.* = Renderer2D{
@@ -217,6 +261,7 @@ pub const Renderer2D = struct {
             .line_shader = line_shader,
             .triangle_shader = triangle_shader,
             .textured_triangle_shader = textured_triangle_shader,
+            .wood_triangle_shader = wood_triangle_shader,
 
             .point_vao = point_vao,
             .point_vbo = point_vbo,
@@ -226,14 +271,18 @@ pub const Renderer2D = struct {
             .triangle_vbo = triangle_vbo,
             .textured_triangle_vao = textured_triangle_vao,
             .textured_triangle_vbo = textured_triangle_vbo,
+            .wood_triangle_vao = wood_triangle_vao,
+            .wood_triangle_vbo = wood_triangle_vbo,
 
             .point_data = .init(allocator),
             .line_data = .init(allocator),
             .triangle_data = .init(allocator),
             .textured_triangle_data = .init(allocator),
+            .wood_triangle_data = .init(allocator),
             .text_data = .init(allocator),
 
             .textures = .init(allocator),
+            .noise_texture = noise_texture,
         };
     }
 
@@ -245,6 +294,7 @@ pub const Renderer2D = struct {
         self.line_data.deinit();
         self.triangle_data.deinit();
         self.textured_triangle_data.deinit();
+        self.wood_triangle_data.deinit();
 
         gl.deleteVertexArrays(1, &self.point_vao);
         gl.deleteBuffers(1, &self.point_vbo);
@@ -257,6 +307,9 @@ pub const Renderer2D = struct {
 
         gl.deleteVertexArrays(1, &self.textured_triangle_vao);
         gl.deleteBuffers(1, &self.textured_triangle_vbo);
+
+        gl.deleteVertexArrays(1, &self.wood_triangle_vao);
+        gl.deleteBuffers(1, &self.wood_triangle_vbo);
     }
 
     pub fn loadTexture(self: *Self, name: []const u8) !u32 {
@@ -303,10 +356,6 @@ pub const Renderer2D = struct {
             .color = color,
         }) catch unreachable;
     }
-
-    // pub fn addArrow(self: *Self, from: vec2, to: vec2, color: Color) void {
-
-    // }
 
     pub fn addCircle(self: *Self, center: vec2, radius: f32, color: Color) void {
         const segments: usize = 32;
@@ -373,6 +422,21 @@ pub const Renderer2D = struct {
             .color = color,
             .texcoord = uv3,
             .tex_id = tex_id,
+        }) catch unreachable;
+    }
+
+    pub fn addWoodTriangle(self: *Self, p1: vec2, p2: vec2, p3: vec2, uv1: vec2, uv2: vec2, uv3: vec2) void {
+        self.wood_triangle_data.append(WoodVertexData{
+            .position = p1,
+            .texcoord = uv1,
+        }) catch unreachable;
+        self.wood_triangle_data.append(WoodVertexData{
+            .position = p2,
+            .texcoord = uv2,
+        }) catch unreachable;
+        self.wood_triangle_data.append(WoodVertexData{
+            .position = p3,
+            .texcoord = uv3,
         }) catch unreachable;
     }
 
@@ -461,6 +525,66 @@ pub const Renderer2D = struct {
         self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_left, .color = color, .texcoord = uv_top_left, .tex_id = tex_id }) catch unreachable;
     }
 
+    pub fn addWoodQuad(self: *Self, points: [4]vec2) void {
+        // Note: using ccw because that's what box2d uses
+
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = vec2.init(0, 0);
+        const uv_bottom_right = vec2.init(1, 0);
+        const uv_top_right = vec2.init(1, 1);
+        const uv_top_left = vec2.init(0, 1);
+
+        // 1:
+        // bottom left
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
+        // bottom right
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_right, .texcoord = uv_bottom_right }) catch unreachable;
+        // top right
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
+
+        // 2:
+        // bottom left
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
+        // top right
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
+        // top left
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_left, .texcoord = uv_top_left }) catch unreachable;
+    }
+
+    pub fn addWoodQuadRepeating(self: *Self, points: [4]vec2, tex_scaling: f32) void {
+        // Note: using ccw because that's what box2d uses
+
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = points[0].scale(tex_scaling);
+        const uv_bottom_right = points[1].scale(tex_scaling);
+        const uv_top_right = points[2].scale(tex_scaling);
+        const uv_top_left = points[3].scale(tex_scaling);
+
+        // 1:
+        // bottom left
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
+        // bottom right
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_right, .texcoord = uv_bottom_right }) catch unreachable;
+        // top right
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
+
+        // 2:
+        // bottom left
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
+        // top right
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
+        // top left
+        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_left, .texcoord = uv_top_left }) catch unreachable;
+    }
+
     pub fn addText(self: *Self, position: vec2, color: Color, comptime fmt: []const u8, args: anytype) void {
         self.text_data.append(TextData{
             .position = position,
@@ -477,10 +601,12 @@ pub const Renderer2D = struct {
         data.len = s.len;
     }
 
-    pub fn render(self: *Self, camera: *Camera) void {
+    pub fn render(self: *Self, camera: *Camera, dt: f32) void {
         const model: zm.Mat = zm.identity();
         const view = camera.view;
         const projection = camera.projection;
+
+        self.time += dt;
 
         const viewport_size = [2]f32{
             @floatFromInt(camera.viewport_size[0]),
@@ -565,6 +691,40 @@ pub const Renderer2D = struct {
 
             // clear buffer
             self.triangle_data.clearRetainingCapacity();
+        }
+
+        // wood triangles
+        if (self.wood_triangle_data.items.len > 0) {
+            // upload data
+            gl.bindBuffer(gl.ARRAY_BUFFER, self.wood_triangle_vbo);
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                @intCast(@sizeOf(WoodVertexData) * self.wood_triangle_data.items.len),
+                self.wood_triangle_data.items.ptr,
+                gl.DYNAMIC_DRAW,
+            );
+            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+
+            // render
+            self.wood_triangle_shader.bind();
+            self.noise_texture.bind();
+            {
+                self.wood_triangle_shader.setMat4("uModel", model);
+                self.wood_triangle_shader.setMat4("uView", view);
+                self.wood_triangle_shader.setMat4("uProjection", projection);
+
+                self.wood_triangle_shader.setInt("uTexture", 0); // TEXTURE0
+                self.wood_triangle_shader.setFloat("uTime", self.time);
+
+                gl.bindVertexArray(self.wood_triangle_vao);
+                gl.drawArrays(gl.TRIANGLES, 0, @intCast(self.wood_triangle_data.items.len));
+                gl.bindVertexArray(0);
+            }
+            self.noise_texture.unbind();
+            self.wood_triangle_shader.unbind();
+
+            // clear buffer
+            self.wood_triangle_data.clearRetainingCapacity();
         }
 
         // lines

@@ -54,8 +54,18 @@ pub fn getScene() engine.SceneDescriptor {
 //
 // - vehicle-center vs vehicle-CoM (maybe fix it in world.update ?)
 //
-// world:
 // - spawn debris from destroyable things?
+//
+// - renderer2D: need layers / z-coord ?
+//
+// - generate mats in shader
+//   - wood
+//   - cardboard
+//   - ?
+//
+// - player controller
+// - player renderer
+//
 //
 
 const SimSpeed = union(enum) {
@@ -345,8 +355,6 @@ const GameScene = struct {
     fn render(self_ptr: *anyopaque, context: *const engine.RenderContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        _ = context;
-
         // mouse
         //self.renderer.addPointWithPixelSize(self.mouse_position, 10.0, Color.green);
 
@@ -359,7 +367,7 @@ const GameScene = struct {
         // tool
         self.tool_manager.render(.{});
 
-        self.renderer.render(&self.camera);
+        self.renderer.render(&self.camera, context.dt);
     }
 
     fn drawUi(self_ptr: *anyopaque, context: *const engine.DrawUiContext) void {

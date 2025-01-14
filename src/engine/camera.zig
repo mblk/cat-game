@@ -41,18 +41,8 @@ pub const Camera = struct {
         const far = 1000.0;
 
         self.projection = zmath.orthographicRhGl(width, height, near, far); // -width/2 ... +width/2
-        //self.view = zmath.identity(); // focuspoint + offset
-
-        //self.projection = zmath.Mat4.ortho(left, right, bottom, top, near, far);
-        //self.view = zmath.Mat4.identity();
-
-        //const effective_pos = self.focus_position + self.offset;
-        //self.view = zmath.Mat4.translate(self.view, zmath.Vec3.init(-effective_pos.x, -effective_pos.y, 0.0));
 
         const effective_pos = self.focus_position.add(self.offset);
-
-        // const effective_pos_x = self.focus_position[0] + self.offset[0];
-        // const effective_pos_y = self.focus_position[1] + self.offset[1];
 
         self.view = zmath.translation(-effective_pos.x, -effective_pos.y, 0.0);
     }

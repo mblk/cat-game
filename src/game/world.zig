@@ -424,7 +424,8 @@ pub const World = struct {
         //
         // Step world
         //
-        const physics_time_step: f32 = 1.0 / 60.0; // TODO run multiple steps depending on frame dt
+        //const physics_time_step: f32 = 1.0 / 60.0; // TODO run multiple steps depending on frame dt
+        const physics_time_step: f32 = 1.0 / 100.0; // TODO run multiple steps depending on frame dt
         const physics_sub_step_count: i32 = 4;
 
         b2.b2World_Step(self.world_id, physics_time_step, physics_sub_step_count);

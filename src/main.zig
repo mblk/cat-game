@@ -140,6 +140,8 @@ pub fn main() !void {
 
     //scene_manager.switchScene(.Menu);
 
+    //scene_manager.switchScene(.Renderer2DTest);
+
     scene_manager.switchScene(.{
         .Game = .{
             .edit_mode = false,

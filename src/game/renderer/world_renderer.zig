@@ -230,7 +230,8 @@ pub const WorldRenderer = struct {
             );
 
             //self.renderer2D.addTriangle(p1_world, p2_world, p3_world, Color.white);
-            self.renderer2D.addTexturedTriangle(p1_world, p2_world, p3_world, Color.white, p1_uv, p2_uv, p3_uv, self.tex_wood1);
+            //self.renderer2D.addTexturedTriangle(p1_world, p2_world, p3_world, Color.white, p1_uv, p2_uv, p3_uv, self.tex_wood1);
+            self.renderer2D.addWoodTriangle(p1_world, p2_world, p3_world, p1_uv, p2_uv, p3_uv);
         }
     }
 

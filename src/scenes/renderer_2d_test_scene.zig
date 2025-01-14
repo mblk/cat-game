@@ -69,109 +69,129 @@ const Renderer2DTestScene = struct {
         if (context.input_state.getKeyState(.right)) self.camera.changeOffset(vec2.init(100.0 * context.dt, 0.0));
         if (context.input_state.getKeyState(.up)) self.camera.changeOffset(vec2.init(0.0, 100.0 * context.dt));
         if (context.input_state.getKeyState(.down)) self.camera.changeOffset(vec2.init(0.0, -100.0 * context.dt));
+
+        if (context.input_state.consumeKeyDownEvent(.escape)) {
+            context.scene_commands.new_scene = .Menu;
+        }
     }
 
     fn render(self_ptr: *anyopaque, context: *const engine.RenderContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        _ = context;
+        if (false) {
+            const p1 = vec2.init(0.0, 0.0);
+            const p2 = vec2.init(10.0, 0.0);
+            const p3 = vec2.init(10.0, 10.0);
+            const p4 = vec2{ .x = 0.0, .y = 10.0 };
+            const p5 = vec2{ .x = 30.0, .y = 10.0 };
 
-        const p1 = vec2.init(0.0, 0.0);
-        const p2 = vec2.init(10.0, 0.0);
-        const p3 = vec2.init(10.0, 10.0);
-        const p4 = vec2{ .x = 0.0, .y = 10.0 };
-        const p5 = vec2{ .x = 30.0, .y = 10.0 };
+            const c1 = Color.red;
+            const c2 = Color.green;
+            const c3 = Color.blue;
+            const c4 = Color.init(255, 255, 0, 255);
 
-        const c1 = Color.red;
-        const c2 = Color.green;
-        const c3 = Color.blue;
-        const c4 = Color.init(255, 255, 0, 255);
+            self.renderer.addPoint(p1, 1.0, c1);
+            self.renderer.addPoint(p2, 2.5, c2);
+            self.renderer.addPoint(p3, 2.5, c3);
+            self.renderer.addPoint(p4, 5.0, c4);
+            self.renderer.addPointWithPixelSize(p5, 50.0, c1);
 
-        self.renderer.addPoint(p1, 1.0, c1);
-        self.renderer.addPoint(p2, 2.5, c2);
-        self.renderer.addPoint(p3, 2.5, c3);
-        self.renderer.addPoint(p4, 5.0, c4);
-        self.renderer.addPointWithPixelSize(p5, 50.0, c1);
+            self.renderer.addLine(p1, p2, c1);
+            self.renderer.addLine(p2, p3, c2);
+            self.renderer.addLine(p3, p4, c3);
+            self.renderer.addLine(p4, p1, c4);
 
-        self.renderer.addLine(p1, p2, c1);
-        self.renderer.addLine(p2, p3, c2);
-        self.renderer.addLine(p3, p4, c3);
-        self.renderer.addLine(p4, p1, c4);
+            self.renderer.addCircle(vec2.init(0, -10), 1.0, Color.red);
+            self.renderer.addCircle(vec2.init(5, -10), 2.0, Color.green);
 
-        self.renderer.addCircle(vec2.init(0, -10), 1.0, Color.red);
-        self.renderer.addCircle(vec2.init(5, -10), 2.0, Color.green);
+            // cw
+            self.renderer.addTriangle(
+                vec2.init(-30.0, 0.0),
+                vec2.init(-30.0, 30.0),
+                vec2.init(0.0, 30.0),
+                Color.blue,
+            );
 
-        // cw
-        self.renderer.addTriangle(
-            vec2.init(-30.0, 0.0),
-            vec2.init(-30.0, 30.0),
-            vec2.init(0.0, 30.0),
-            Color.blue,
-        );
+            // ccw
+            self.renderer.addTriangle(
+                vec2.init(-30.0, 0.0),
+                vec2.init(-30.0, -30.0),
+                vec2.init(0.0, -30.0),
+                Color.red,
+            );
 
-        // ccw
-        self.renderer.addTriangle(
-            vec2.init(-30.0, 0.0),
-            vec2.init(-30.0, -30.0),
-            vec2.init(0.0, -30.0),
-            Color.red,
-        );
+            // ccw
+            self.renderer.addTexturedTriangle(
+                vec2.init(-60.0, 0.0), // top left
+                vec2.init(-60.0, -30.0), // bottom left
+                vec2.init(-30.0, -30.0), // bottom right
+                Color.white,
+                vec2.init(0, 1),
+                vec2.init(0, 0),
+                vec2.init(1, 0),
+                self.texture1,
+            );
+            self.renderer.addTexturedTriangle(
+                vec2.init(-90.0, 0.0), // top left
+                vec2.init(-90.0, -30.0), // bottom left
+                vec2.init(-60.0, -30.0), // bottom right
+                Color.white,
+                vec2.init(0, 1),
+                vec2.init(0, 0),
+                vec2.init(1, 0),
+                self.texture2,
+            );
+            self.renderer.addTexturedTriangle(
+                vec2.init(-120.0, 0.0), // top left
+                vec2.init(-120.0, -30.0), // bottom left
+                vec2.init(-90.0, -30.0), // bottom right
+                Color.white,
+                vec2.init(0, 1),
+                vec2.init(0, 0),
+                vec2.init(1, 0),
+                self.texture3,
+            );
 
-        // ccw
-        self.renderer.addTexturedTriangle(
-            vec2.init(-60.0, 0.0), // top left
-            vec2.init(-60.0, -30.0), // bottom left
-            vec2.init(-30.0, -30.0), // bottom right
-            Color.white,
-            vec2.init(0, 1),
-            vec2.init(0, 0),
-            vec2.init(1, 0),
-            self.texture1,
-        );
-        self.renderer.addTexturedTriangle(
-            vec2.init(-90.0, 0.0), // top left
-            vec2.init(-90.0, -30.0), // bottom left
-            vec2.init(-60.0, -30.0), // bottom right
-            Color.white,
-            vec2.init(0, 1),
-            vec2.init(0, 0),
-            vec2.init(1, 0),
-            self.texture2,
-        );
-        self.renderer.addTexturedTriangle(
-            vec2.init(-120.0, 0.0), // top left
-            vec2.init(-120.0, -30.0), // bottom left
-            vec2.init(-90.0, -30.0), // bottom right
-            Color.white,
-            vec2.init(0, 1),
-            vec2.init(0, 0),
-            vec2.init(1, 0),
-            self.texture3,
-        );
+            self.renderer.addTexturedQuad([_]vec2{
+                vec2.init(-60, -60),
+                vec2.init(-30, -60),
+                vec2.init(-30, -30),
+                vec2.init(-60, -30),
+            }, Color.white, self.texture3);
+            self.renderer.addTexturedQuad([_]vec2{
+                vec2.init(-90, -60),
+                vec2.init(-60, -60),
+                vec2.init(-60, -30),
+                vec2.init(-90, -30),
+            }, Color.white, self.texture2);
+            self.renderer.addTexturedQuad([_]vec2{
+                vec2.init(-120, -60),
+                vec2.init(-90, -60),
+                vec2.init(-90, -30),
+                vec2.init(-120, -30),
+            }, Color.white, self.texture1);
+        }
 
-        self.renderer.addTexturedQuad([_]vec2{
-            vec2.init(-60, -60),
-            vec2.init(-30, -60),
-            vec2.init(-30, -30),
-            vec2.init(-60, -30),
-        }, Color.white, self.texture3);
-        self.renderer.addTexturedQuad([_]vec2{
-            vec2.init(-90, -60),
-            vec2.init(-60, -60),
-            vec2.init(-60, -30),
-            vec2.init(-90, -30),
-        }, Color.white, self.texture2);
-        self.renderer.addTexturedQuad([_]vec2{
-            vec2.init(-120, -60),
-            vec2.init(-90, -60),
-            vec2.init(-90, -30),
-            vec2.init(-120, -30),
-        }, Color.white, self.texture1);
+        if (true) {
+            self.renderer.addWoodQuad([_]vec2{
+                vec2.init(0, 0),
+                vec2.init(50, 0),
+                vec2.init(50, 50),
+                vec2.init(0, 50),
+            });
+
+            self.renderer.addWoodQuadRepeating([_]vec2{
+                vec2.init(0, -50),
+                vec2.init(150, -50),
+                vec2.init(150, 0),
+                vec2.init(0, 0),
+            }, 1.0 / 50.0);
+        }
 
         self.renderer.addText(vec2.init(0, 0), Color.red, "Hello !", .{});
         self.renderer.addText(vec2.init(0, -10), Color.green, "World !", .{});
 
-        self.renderer.render(&self.camera);
+        self.renderer.render(&self.camera, context.dt);
     }
 
     fn drawUi(self_ptr: *anyopaque, context: *const engine.DrawUiContext) void {
