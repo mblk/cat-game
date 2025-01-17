@@ -20,9 +20,7 @@ float hash(in vec2 p) {
         int(mod(p.y, 256.))
     );
     // return number between -1 and 1
-    //return -1.0 + 2.0*texelFetch(iChannel0, texp, 0).x;
     return -1.0 + 2.0*texelFetch(uTexture, texp, 0).x;
-        //vec4 c = texture(uTexture, fTexCoord) * fColor;
 }
 
 vec2 hash2(in vec2 p)

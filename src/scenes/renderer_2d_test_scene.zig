@@ -23,23 +23,20 @@ const Renderer2DTestScene = struct {
     camera: engine.Camera,
     renderer: engine.Renderer2D,
 
-    texture1: u32,
-    texture2: u32,
-    texture3: u32,
+    mat_default: engine.MaterialRef,
+    mat_textured: engine.MaterialRef,
+    mat_wood: engine.MaterialRef,
 
     fn load(context: *const engine.LoadContext) !*anyopaque {
         const self = try context.allocator.create(Self);
-        // self.* = Self{
-        //     .camera = engine.Camera.create(),
-        // };
 
         self.camera = engine.Camera.create();
 
         try self.renderer.init(context.allocator, context.content_manager);
 
-        self.texture1 = try self.renderer.loadTexture("cat1.png");
-        self.texture2 = try self.renderer.loadTexture("cat2.png");
-        self.texture3 = try self.renderer.loadTexture("cardboard1.png");
+        self.mat_default = self.renderer.materials.getRefByName("default");
+        self.mat_textured = self.renderer.materials.getRefByName("background");
+        self.mat_wood = self.renderer.materials.getRefByName("wood");
 
         return self;
     }
@@ -78,7 +75,7 @@ const Renderer2DTestScene = struct {
     fn render(self_ptr: *anyopaque, context: *const engine.RenderContext) void {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
-        if (false) {
+        if (true) {
             const p1 = vec2.init(0.0, 0.0);
             const p2 = vec2.init(10.0, 0.0);
             const p3 = vec2.init(10.0, 10.0);
@@ -105,87 +102,117 @@ const Renderer2DTestScene = struct {
             self.renderer.addCircle(vec2.init(5, -10), 2.0, Color.green);
 
             // cw
-            self.renderer.addTriangle(
-                vec2.init(-30.0, 0.0),
-                vec2.init(-30.0, 30.0),
-                vec2.init(0.0, 30.0),
+            self.renderer.addTrianglePC(
+                [3]vec2{
+                    vec2.init(-30.0, 0.0),
+                    vec2.init(-30.0, 30.0),
+                    vec2.init(0.0, 30.0),
+                },
                 Color.blue,
+                self.mat_default,
             );
 
             // ccw
-            self.renderer.addTriangle(
-                vec2.init(-30.0, 0.0),
-                vec2.init(-30.0, -30.0),
-                vec2.init(0.0, -30.0),
+            self.renderer.addTrianglePC(
+                [3]vec2{
+                    vec2.init(-30.0, 0.0),
+                    vec2.init(-30.0, -30.0),
+                    vec2.init(0.0, -30.0),
+                },
                 Color.red,
+                self.mat_default,
             );
 
             // ccw
-            self.renderer.addTexturedTriangle(
-                vec2.init(-60.0, 0.0), // top left
-                vec2.init(-60.0, -30.0), // bottom left
-                vec2.init(-30.0, -30.0), // bottom right
-                Color.white,
-                vec2.init(0, 1),
-                vec2.init(0, 0),
-                vec2.init(1, 0),
-                self.texture1,
+            self.renderer.addTrianglePU(
+                [3]vec2{
+                    vec2.init(-60.0, 0.0), // top left
+                    vec2.init(-60.0, -30.0), // bottom left
+                    vec2.init(-30.0, -30.0), // bottom right
+                },
+                //Color.white,
+                [3]vec2{
+                    vec2.init(0, 1),
+                    vec2.init(0, 0),
+                    vec2.init(1, 0),
+                },
+                self.mat_default,
             );
-            self.renderer.addTexturedTriangle(
-                vec2.init(-90.0, 0.0), // top left
-                vec2.init(-90.0, -30.0), // bottom left
-                vec2.init(-60.0, -30.0), // bottom right
-                Color.white,
-                vec2.init(0, 1),
-                vec2.init(0, 0),
-                vec2.init(1, 0),
-                self.texture2,
+            self.renderer.addTrianglePU(
+                [3]vec2{
+                    vec2.init(-90.0, 0.0), // top left
+                    vec2.init(-90.0, -30.0), // bottom left
+                    vec2.init(-60.0, -30.0), // bottom right
+                },
+                //Color.white,
+                [3]vec2{
+                    vec2.init(0, 1),
+                    vec2.init(0, 0),
+                    vec2.init(1, 0),
+                },
+                self.mat_textured,
             );
-            self.renderer.addTexturedTriangle(
-                vec2.init(-120.0, 0.0), // top left
-                vec2.init(-120.0, -30.0), // bottom left
-                vec2.init(-90.0, -30.0), // bottom right
-                Color.white,
-                vec2.init(0, 1),
-                vec2.init(0, 0),
-                vec2.init(1, 0),
-                self.texture3,
+            self.renderer.addTrianglePU(
+                [3]vec2{
+                    vec2.init(-120.0, 0.0), // top left
+                    vec2.init(-120.0, -30.0), // bottom left
+                    vec2.init(-90.0, -30.0), // bottom right
+                },
+                //Color.white,
+                [3]vec2{
+                    vec2.init(0, 1),
+                    vec2.init(0, 0),
+                    vec2.init(1, 0),
+                },
+                self.mat_wood,
             );
 
-            self.renderer.addTexturedQuad([_]vec2{
-                vec2.init(-60, -60),
-                vec2.init(-30, -60),
-                vec2.init(-30, -30),
-                vec2.init(-60, -30),
-            }, Color.white, self.texture3);
-            self.renderer.addTexturedQuad([_]vec2{
-                vec2.init(-90, -60),
-                vec2.init(-60, -60),
-                vec2.init(-60, -30),
-                vec2.init(-90, -30),
-            }, Color.white, self.texture2);
-            self.renderer.addTexturedQuad([_]vec2{
-                vec2.init(-120, -60),
-                vec2.init(-90, -60),
-                vec2.init(-90, -30),
-                vec2.init(-120, -30),
-            }, Color.white, self.texture1);
+            self.renderer.addQuadPC(
+                [_]vec2{
+                    vec2.init(-60, -60),
+                    vec2.init(-30, -60),
+                    vec2.init(-30, -30),
+                    vec2.init(-60, -30),
+                },
+                Color.white,
+                self.mat_default,
+            );
+            self.renderer.addQuadPC(
+                [_]vec2{
+                    vec2.init(-90, -60),
+                    vec2.init(-60, -60),
+                    vec2.init(-60, -30),
+                    vec2.init(-90, -30),
+                },
+                Color.white,
+                self.mat_textured,
+            );
+            self.renderer.addQuadPC(
+                [_]vec2{
+                    vec2.init(-120, -60),
+                    vec2.init(-90, -60),
+                    vec2.init(-90, -30),
+                    vec2.init(-120, -30),
+                },
+                Color.white,
+                self.mat_wood,
+            );
         }
 
-        if (true) {
-            self.renderer.addWoodQuad([_]vec2{
+        if (false) {
+            self.renderer.addQuadP([_]vec2{
                 vec2.init(0, 0),
                 vec2.init(50, 0),
                 vec2.init(50, 50),
                 vec2.init(0, 50),
-            });
+            }, self.mat_wood);
 
-            self.renderer.addWoodQuadRepeating([_]vec2{
+            self.renderer.addQuadRepeatingP([_]vec2{
                 vec2.init(0, -50),
                 vec2.init(150, -50),
                 vec2.init(150, 0),
                 vec2.init(0, 0),
-            }, 1.0 / 50.0);
+            }, 1.0 / 50.0, self.mat_wood);
         }
 
         self.renderer.addText(vec2.init(0, 0), Color.red, "Hello !", .{});

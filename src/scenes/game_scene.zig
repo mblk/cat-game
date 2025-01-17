@@ -48,6 +48,16 @@ pub fn getScene() engine.SceneDescriptor {
 // TODO //
 //////////
 //
+//
+//
+// BIG TODO 1: Materials
+//
+// BIG TODO 2: layers, z-coordinates
+//
+// BIG TODO 3: generic datastructures for vertex buffers?
+//
+//
+//
 // - generic datastructures:
 //   - graph + findPartitions
 //   - refs / versioned-index
@@ -56,15 +66,26 @@ pub fn getScene() engine.SceneDescriptor {
 //
 // - spawn debris from destroyable things?
 //
-// - renderer2D: need layers / z-coord ?
+// - renderer2D
+//   - need layers / z-coord
+//   - materials: vs+fs+texture(s)
 //
 // - generate mats in shader
 //   - wood
+//   - bricks
 //   - cardboard
 //   - ?
+//   - edges/corners
 //
 // - player controller
+//   - walking/jumping
+//   - leg simulation
+//   - player "tools": grab/build/destroy/...
+//   - inventory (grid based vs physics based?)
+//
 // - player renderer
+//   - skeleton data: get from player controller or generate ?
+//
 //
 //
 

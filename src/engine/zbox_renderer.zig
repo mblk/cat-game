@@ -9,12 +9,15 @@ const b2 = zbox.API;
 const zgui = @import("zgui");
 
 const Renderer2D = @import("renderer_2d.zig").Renderer2D;
+const MaterialRef = @import("material.zig").MaterialRef;
 
 pub const ZBoxRenderer = struct {
     const Self = @This();
 
     b2_debug_draw: b2.b2DebugDraw,
     renderer: *Renderer2D,
+
+    mat_default: MaterialRef,
 
     pub fn init(self: *Self, renderer: *Renderer2D) void {
         var b2_debug_draw: b2.b2DebugDraw = b2.b2DefaultDebugDraw();
@@ -33,11 +36,13 @@ pub const ZBoxRenderer = struct {
         //b2_debug_draw.drawJoints = true;
         //b2_debug_draw.drawAABBs = true;
 
-        b2_debug_draw.context = renderer;
+        b2_debug_draw.context = self;
 
         self.* = ZBoxRenderer{
             .b2_debug_draw = b2_debug_draw,
             .renderer = renderer,
+
+            .mat_default = renderer.getMaterial("default"),
         };
     }
 
@@ -65,7 +70,9 @@ pub const ZBoxRenderer = struct {
     ) callconv(.c) void {
         //std.log.info("b2_draw_polygon count={d}", .{vertex_count});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const color = convertColor(b2color);
         const count: usize = @intCast(vertex_count);
 
@@ -94,7 +101,9 @@ pub const ZBoxRenderer = struct {
 
         //std.log.info("b2_draw_solid_polygon", .{});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const color = convertColor(b2color);
         const fill_color = Color{
             .r = color.r / 4,
@@ -126,7 +135,7 @@ pub const ZBoxRenderer = struct {
             const p1 = abs_points[i];
             const p2 = abs_points[i + 1];
 
-            renderer.addTriangle(p0, p1, p2, fill_color);
+            renderer.addTrianglePC([3]vec2{ p0, p1, p2 }, fill_color, self.mat_default);
         }
     }
 
@@ -135,7 +144,9 @@ pub const ZBoxRenderer = struct {
     fn b2_draw_circle(b2center: b2.b2Vec2, radius: f32, b2color: b2.b2HexColor, context: ?*anyopaque) callconv(.c) void {
         //std.log.info("b2_draw_circle", .{});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const color = convertColor(b2color);
         const center = convertVec2(b2center);
 
@@ -152,7 +163,9 @@ pub const ZBoxRenderer = struct {
     ) callconv(.c) void {
         //std.log.info("b2_draw_solid_circle", .{});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const color = convertColor(b2color);
         const fill_color = Color{
             .r = color.r / 4,
@@ -165,7 +178,7 @@ pub const ZBoxRenderer = struct {
         const right_vector = vec2.from_b2(b2.b2RotateVector(transform.q, vec2.init(1, 0).to_b2()));
         const right = center.add(right_vector.scale(radius));
 
-        renderer.addSolidCircle(center, radius, fill_color);
+        renderer.addSolidCircle(center, radius, fill_color, self.mat_default);
         renderer.addCircle(center, radius, color);
         renderer.addLine(center, right, color);
     }
@@ -187,7 +200,9 @@ pub const ZBoxRenderer = struct {
     fn b2_draw_segment(b2p1: b2.b2Vec2, b2p2: b2.b2Vec2, b2color: b2.b2HexColor, context: ?*anyopaque) callconv(.c) void {
         //std.log.info("b2_draw_segment", .{});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const color = convertColor(b2color);
         const p1 = convertVec2(b2p1);
         const p2 = convertVec2(b2p2);
@@ -200,7 +215,9 @@ pub const ZBoxRenderer = struct {
     fn b2_draw_transform(transform: b2.b2Transform, context: ?*anyopaque) callconv(.c) void {
         //std.log.info("b2_draw_transform", .{});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const axis_scale = 0.5;
 
         const p1 = vec2.from_b2(transform.p);
@@ -216,7 +233,9 @@ pub const ZBoxRenderer = struct {
     fn b2_draw_point(b2p: b2.b2Vec2, size: f32, b2color: b2.b2HexColor, context: ?*anyopaque) callconv(.c) void {
         //std.log.info("b2_draw_point {d}", .{size});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const color = convertColor(b2color);
         const p = convertVec2(b2p);
 
@@ -228,17 +247,19 @@ pub const ZBoxRenderer = struct {
     fn b2_draw_string(b2p: b2.b2Vec2, b2s: [*c]const u8, context: ?*anyopaque) callconv(.c) void {
         //std.log.info("b2_draw_string {s}", .{b2s});
 
-        const renderer = getRenderer(context);
+        const self = getSelfPtr(context);
+        const renderer = self.renderer;
+
         const p = convertVec2(b2p);
         const s: []const u8 = std.mem.span(b2s); // convert c-string-pointer to slice
 
         renderer.addText(p, Color.white, "{s}", .{s});
     }
 
-    inline fn getRenderer(context: ?*anyopaque) *Renderer2D {
+    inline fn getSelfPtr(context: ?*anyopaque) *Self {
         std.debug.assert(context != null);
-        const renderer: *Renderer2D = @ptrCast(@alignCast(context));
-        return renderer;
+        const self: *Self = @ptrCast(@alignCast(context));
+        return self;
     }
 
     inline fn convertColor(color: b2.b2HexColor) Color {

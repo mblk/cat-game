@@ -10,8 +10,23 @@ const Shader = @import("shader.zig").Shader;
 const Texture = @import("texture.zig").Texture;
 const Camera = @import("camera.zig").Camera;
 
+const MaterialDefs = @import("material.zig").MaterialDefs;
+const MaterialDef = @import("material.zig").MaterialDef;
+const Materials = @import("material.zig").Materials;
+const Material = @import("material.zig").Material;
+const MaterialRef = @import("material.zig").MaterialRef;
+
+const DynamicVertexBuffer = @import("vertex_buffer.zig").DynamicVertexBuffer;
+
 const vec2 = @import("math.zig").vec2;
 const Color = @import("math.zig").Color;
+
+// Vertex data for material-based rendering
+const CommonVertexData = struct {
+    position: vec2 = vec2.zero, // TODO vec3 for layers
+    color: Color = Color.white,
+    tex_coord: vec2 = vec2.zero,
+};
 
 const PointVertexData = struct {
     position: vec2,
@@ -20,21 +35,9 @@ const PointVertexData = struct {
     scale: f32,
 };
 
-const VertexData = struct {
+const LineVertexData = struct {
     position: vec2,
     color: Color,
-};
-
-const TexturedVertexData = struct {
-    position: vec2,
-    color: Color,
-    texcoord: vec2,
-    tex_id: u32,
-};
-
-const WoodVertexData = struct {
-    position: vec2,
-    texcoord: vec2,
 };
 
 const TextData = struct {
@@ -44,47 +47,22 @@ const TextData = struct {
     len: usize,
 };
 
-const TextureData = struct {
-    //id: u32,
-    texture: *Texture,
-};
-
 pub const Renderer2D = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
     content_manager: *ContentManager,
 
+    materials: Materials,
+    material_vertex_buffers: std.AutoArrayHashMap(MaterialRef, *DynamicVertexBuffer(CommonVertexData)),
+
+    point_vertex_buffer: DynamicVertexBuffer(PointVertexData),
+    line_vertex_buffer: DynamicVertexBuffer(LineVertexData),
+
     point_shader: *Shader,
     line_shader: *Shader,
-    triangle_shader: *Shader,
-    textured_triangle_shader: *Shader,
-    wood_triangle_shader: *Shader,
 
-    point_vbo: c_uint,
-    point_vao: c_uint,
-
-    line_vbo: c_uint,
-    line_vao: c_uint,
-
-    triangle_vbo: c_uint,
-    triangle_vao: c_uint,
-
-    textured_triangle_vbo: c_uint,
-    textured_triangle_vao: c_uint,
-
-    wood_triangle_vbo: c_uint,
-    wood_triangle_vao: c_uint,
-
-    point_data: std.ArrayList(PointVertexData),
-    line_data: std.ArrayList(VertexData),
-    triangle_data: std.ArrayList(VertexData),
-    textured_triangle_data: std.ArrayList(TexturedVertexData),
-    wood_triangle_data: std.ArrayList(WoodVertexData),
     text_data: std.ArrayList(TextData),
-
-    textures: std.ArrayList(TextureData),
-    noise_texture: *Texture,
 
     time: f32 = 0,
 
@@ -94,267 +72,111 @@ pub const Renderer2D = struct {
         content_manager: *ContentManager,
     ) !void {
 
-        // TODO: make some kind of generic datastructure for the different render-things
+        // TODO: move to contentmanager?
+        // Load materials.
+        const material_defs = try MaterialDefs.load(allocator);
+        defer material_defs.deinit();
+        const materials = try Materials.init(&material_defs, allocator, content_manager);
 
-        //
+        // Create dynamic vertex buffer for each material.
+        var material_vertex_buffers = std.AutoArrayHashMap(MaterialRef, *DynamicVertexBuffer(CommonVertexData)).init(allocator);
+        for (materials.materials, 0..) |_, material_index| {
+            const material_ref = MaterialRef{
+                .index = material_index,
+            };
+
+            // Note: We need a stable pointer to the dynamic vertex buffer so it can be stored in the hashmap.
+            const vertex_buffer = try allocator.create(DynamicVertexBuffer(CommonVertexData));
+            vertex_buffer.* = try .init(allocator);
+
+            try material_vertex_buffers.putNoClobber(material_ref, vertex_buffer);
+        }
+
+        // TODO: what about these? >> convert to material?
         const point_shader = try content_manager.getShader("point.vs", "point.fs");
         const line_shader = try content_manager.getShader("line.vs", "line.fs");
-        const triangle_shader = try content_manager.getShader("triangle.vs", "triangle.fs");
-        const textured_triangle_shader = try content_manager.getShader("textured_triangle.vs", "textured_triangle.fs");
-        const wood_triangle_shader = try content_manager.getShader("wood_triangle.vs", "wood_triangle.fs");
 
-        const noise_texture = try content_manager.getTexture("noise1_256.png");
-
-        // point buffers
-        var point_vao: c_uint = undefined;
-        gl.genVertexArrays(1, &point_vao);
-
-        var point_vbo: c_uint = undefined;
-        gl.genBuffers(1, &point_vbo);
-
-        gl.bindVertexArray(point_vao);
-        {
-            gl.bindBuffer(gl.ARRAY_BUFFER, point_vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(PointVertexData) * 1024, null, gl.DYNAMIC_DRAW);
-
-            const stride: usize = @sizeOf(PointVertexData);
-            const offset0: [*c]c_uint = @offsetOf(PointVertexData, "position");
-            const offset1: [*c]c_uint = @offsetOf(PointVertexData, "color");
-            const offset2: [*c]c_uint = @offsetOf(PointVertexData, "size");
-            const offset3: [*c]c_uint = @offsetOf(PointVertexData, "scale");
-
-            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0); // position
-            gl.enableVertexAttribArray(0);
-
-            gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, gl.TRUE, stride, offset1); // color
-            gl.enableVertexAttribArray(1);
-
-            gl.vertexAttribPointer(2, 1, gl.FLOAT, gl.FALSE, stride, offset2); // size
-            gl.enableVertexAttribArray(2);
-
-            gl.vertexAttribPointer(3, 1, gl.FLOAT, gl.FALSE, stride, offset3); // scale
-            gl.enableVertexAttribArray(3);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
-        }
-        gl.bindVertexArray(0);
-
-        // line buffers
-        var line_vao: c_uint = undefined;
-        gl.genVertexArrays(1, &line_vao);
-
-        var line_vbo: c_uint = undefined;
-        gl.genBuffers(1, &line_vbo);
-
-        gl.bindVertexArray(line_vao);
-        {
-            gl.bindBuffer(gl.ARRAY_BUFFER, line_vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(VertexData) * 1024, null, gl.DYNAMIC_DRAW);
-
-            const stride: usize = @sizeOf(VertexData);
-            const offset0: [*c]c_uint = @offsetOf(VertexData, "position");
-            const offset1: [*c]c_uint = @offsetOf(VertexData, "color");
-
-            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0); // position
-            gl.enableVertexAttribArray(0);
-
-            gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, gl.TRUE, stride, offset1); // color
-            gl.enableVertexAttribArray(1);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
-        }
-        gl.bindVertexArray(0);
-
-        // triangle buffers
-        var triangle_vao: c_uint = undefined;
-        gl.genVertexArrays(1, &triangle_vao);
-
-        var triangle_vbo: c_uint = undefined;
-        gl.genBuffers(1, &triangle_vbo);
-
-        gl.bindVertexArray(triangle_vao);
-        {
-            gl.bindBuffer(gl.ARRAY_BUFFER, triangle_vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(VertexData) * 1024, null, gl.DYNAMIC_DRAW);
-
-            const stride: usize = @sizeOf(VertexData);
-            const offset0: [*c]c_uint = @offsetOf(VertexData, "position");
-            const offset1: [*c]c_uint = @offsetOf(VertexData, "color");
-
-            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0);
-            gl.enableVertexAttribArray(0);
-
-            gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, gl.TRUE, stride, offset1);
-            gl.enableVertexAttribArray(1);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
-        }
-        gl.bindVertexArray(0);
-
-        // textured triangle buffers
-        var textured_triangle_vao: c_uint = undefined;
-        gl.genVertexArrays(1, &textured_triangle_vao);
-
-        var textured_triangle_vbo: c_uint = undefined;
-        gl.genBuffers(1, &textured_triangle_vbo);
-
-        gl.bindVertexArray(textured_triangle_vao);
-        {
-            gl.bindBuffer(gl.ARRAY_BUFFER, textured_triangle_vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(TexturedVertexData) * 1024, null, gl.DYNAMIC_DRAW);
-
-            const stride: usize = @sizeOf(TexturedVertexData);
-            const offset0: [*c]c_uint = @offsetOf(TexturedVertexData, "position");
-            const offset1: [*c]c_uint = @offsetOf(TexturedVertexData, "color");
-            const offset2: [*c]c_uint = @offsetOf(TexturedVertexData, "texcoord");
-            const offset3: [*c]c_uint = @offsetOf(TexturedVertexData, "tex_id");
-
-            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0);
-            gl.enableVertexAttribArray(0);
-
-            gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, gl.TRUE, stride, offset1);
-            gl.enableVertexAttribArray(1);
-
-            gl.vertexAttribPointer(2, 2, gl.FLOAT, gl.FALSE, stride, offset2);
-            gl.enableVertexAttribArray(2);
-
-            gl.vertexAttribIPointer(3, 1, gl.UNSIGNED_INT, stride, offset3); // Note: different function for integer values!
-            gl.enableVertexAttribArray(3);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
-        }
-        gl.bindVertexArray(0);
-
-        // wood triangle buffers
-        var wood_triangle_vao: c_uint = undefined;
-        gl.genVertexArrays(1, &wood_triangle_vao);
-
-        var wood_triangle_vbo: c_uint = undefined;
-        gl.genBuffers(1, &wood_triangle_vbo);
-
-        gl.bindVertexArray(wood_triangle_vao);
-        {
-            gl.bindBuffer(gl.ARRAY_BUFFER, wood_triangle_vbo);
-            gl.bufferData(gl.ARRAY_BUFFER, @sizeOf(WoodVertexData) * 1024, null, gl.DYNAMIC_DRAW);
-
-            const stride: usize = @sizeOf(WoodVertexData);
-            const offset0: [*c]c_uint = @offsetOf(WoodVertexData, "position");
-            const offset2: [*c]c_uint = @offsetOf(WoodVertexData, "texcoord");
-
-            gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, stride, offset0);
-            gl.enableVertexAttribArray(0);
-
-            gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, stride, offset2);
-            gl.enableVertexAttribArray(1);
-
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0); // ?
-        }
-        gl.bindVertexArray(0);
-
-        // -------
+        // -----
 
         self.* = Renderer2D{
             .allocator = allocator,
             .content_manager = content_manager,
 
+            .materials = materials,
+            .material_vertex_buffers = material_vertex_buffers,
+
+            .point_vertex_buffer = try .init(allocator),
+            .line_vertex_buffer = try .init(allocator),
+
             .point_shader = point_shader,
             .line_shader = line_shader,
-            .triangle_shader = triangle_shader,
-            .textured_triangle_shader = textured_triangle_shader,
-            .wood_triangle_shader = wood_triangle_shader,
 
-            .point_vao = point_vao,
-            .point_vbo = point_vbo,
-            .line_vao = line_vao,
-            .line_vbo = line_vbo,
-            .triangle_vao = triangle_vao,
-            .triangle_vbo = triangle_vbo,
-            .textured_triangle_vao = textured_triangle_vao,
-            .textured_triangle_vbo = textured_triangle_vbo,
-            .wood_triangle_vao = wood_triangle_vao,
-            .wood_triangle_vbo = wood_triangle_vbo,
-
-            .point_data = .init(allocator),
-            .line_data = .init(allocator),
-            .triangle_data = .init(allocator),
-            .textured_triangle_data = .init(allocator),
-            .wood_triangle_data = .init(allocator),
             .text_data = .init(allocator),
-
-            .textures = .init(allocator),
-            .noise_texture = noise_texture,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.textures.deinit();
+        // TODO order
+
+        var iter = self.material_vertex_buffers.iterator();
+        while (iter.next()) |entry| {
+            entry.value_ptr.*.deinit();
+            self.allocator.destroy(entry.value_ptr.*);
+        }
+
+        self.material_vertex_buffers.deinit();
+        self.materials.deinit();
 
         self.text_data.deinit();
-        self.point_data.deinit();
-        self.line_data.deinit();
-        self.triangle_data.deinit();
-        self.textured_triangle_data.deinit();
-        self.wood_triangle_data.deinit();
 
-        gl.deleteVertexArrays(1, &self.point_vao);
-        gl.deleteBuffers(1, &self.point_vbo);
-
-        gl.deleteVertexArrays(1, &self.line_vao);
-        gl.deleteBuffers(1, &self.line_vbo);
-
-        gl.deleteVertexArrays(1, &self.triangle_vao);
-        gl.deleteBuffers(1, &self.triangle_vbo);
-
-        gl.deleteVertexArrays(1, &self.textured_triangle_vao);
-        gl.deleteBuffers(1, &self.textured_triangle_vbo);
-
-        gl.deleteVertexArrays(1, &self.wood_triangle_vao);
-        gl.deleteBuffers(1, &self.wood_triangle_vbo);
+        self.point_vertex_buffer.deinit();
+        self.line_vertex_buffer.deinit();
     }
 
-    pub fn loadTexture(self: *Self, name: []const u8) !u32 {
-
-        // TODO check if already loaded
-
-        const texture: *Texture = try self.content_manager.getTexture(name);
-
-        const index: u32 = @intCast(self.textures.items.len);
-
-        self.textures.append(TextureData{
-            //.id = id,
-            .texture = texture,
-        }) catch unreachable;
-
-        return index;
+    pub fn getMaterial(self: Self, name: []const u8) MaterialRef {
+        return self.materials.getRefByName(name);
     }
+
+    fn getBufferForMaterial(self: *Self, material: MaterialRef) *DynamicVertexBuffer(CommonVertexData) {
+        if (self.material_vertex_buffers.get(material)) |buffer| {
+            return buffer;
+        }
+
+        std.log.err("No dynamic vertex buffer for material: {any}", .{material});
+        @panic("No dynamic vertex buffer for material");
+    }
+
+    //
+    // Add-functions for points & lines
+    //
 
     pub fn addPoint(self: *Self, position: vec2, size: f32, color: Color) void {
-        self.point_data.append(PointVertexData{
+        self.point_vertex_buffer.addVertex(.{
             .position = position,
             .color = color,
             .size = size,
             .scale = 1.0, // size is worldpos
-        }) catch unreachable;
+        });
     }
 
     pub fn addPointWithPixelSize(self: *Self, position: vec2, size: f32, color: Color) void {
-        self.point_data.append(PointVertexData{
+        self.point_vertex_buffer.addVertex(.{
             .position = position,
             .color = color,
             .size = size,
             .scale = 0.0, // size is pixels
-        }) catch unreachable;
+        });
     }
 
     pub fn addLine(self: *Self, p1: vec2, p2: vec2, color: Color) void {
-        self.line_data.append(VertexData{
+        self.line_vertex_buffer.addVertex(.{
             .position = p1,
             .color = color,
-        }) catch unreachable;
-        self.line_data.append(VertexData{
+        });
+        self.line_vertex_buffer.addVertex(.{
             .position = p2,
             .color = color,
-        }) catch unreachable;
+        });
     }
 
     pub fn addCircle(self: *Self, center: vec2, radius: f32, color: Color) void {
@@ -373,7 +195,139 @@ pub const Renderer2D = struct {
         }
     }
 
-    pub fn addSolidCircle(self: *Self, center: vec2, radius: f32, color: Color) void {
+    //
+    // Add-functions for triangles / quads
+    //
+
+    pub fn addTriangleP(self: *Self, pos: [3]vec2, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        buffer.addVertex(.{ .position = pos[0] });
+        buffer.addVertex(.{ .position = pos[1] });
+        buffer.addVertex(.{ .position = pos[2] });
+    }
+
+    pub fn addTrianglePC(self: *Self, pos: [3]vec2, color: Color, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        buffer.addVertex(.{ .position = pos[0], .color = color });
+        buffer.addVertex(.{ .position = pos[1], .color = color });
+        buffer.addVertex(.{ .position = pos[2], .color = color });
+    }
+
+    pub fn addTrianglePU(self: *Self, pos: [3]vec2, uv: [3]vec2, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        buffer.addVertex(.{ .position = pos[0], .tex_coord = uv[0] });
+        buffer.addVertex(.{ .position = pos[1], .tex_coord = uv[1] });
+        buffer.addVertex(.{ .position = pos[2], .tex_coord = uv[2] });
+    }
+
+    pub fn addQuadP(self: *Self, points: [4]vec2, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        // Note: using ccw because that's what box2d uses
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = vec2.init(0, 0);
+        const uv_bottom_right = vec2.init(1, 0);
+        const uv_top_right = vec2.init(1, 1);
+        const uv_top_left = vec2.init(0, 1);
+
+        // 1
+        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_bottom_right, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+
+        // 2
+        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = p_top_left, .tex_coord = uv_top_left });
+    }
+
+    pub fn addQuadPC(self: *Self, points: [4]vec2, color: Color, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        // Note: using ccw because that's what box2d uses
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = vec2.init(0, 0);
+        const uv_bottom_right = vec2.init(1, 0);
+        const uv_top_right = vec2.init(1, 1);
+        const uv_top_left = vec2.init(0, 1);
+
+        // 1
+        buffer.addVertex(.{ .position = p_bottom_left, .color = color, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_bottom_right, .color = color, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = p_top_right, .color = color, .tex_coord = uv_top_right });
+
+        // 2
+        buffer.addVertex(.{ .position = p_bottom_left, .color = color, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_top_right, .color = color, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = p_top_left, .color = color, .tex_coord = uv_top_left });
+    }
+
+    pub fn addQuadPU(self: *Self, points: [4]vec2, uv: [4]vec2, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        // Note: using ccw because that's what box2d uses
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = uv[0];
+        const uv_bottom_right = uv[1];
+        const uv_top_right = uv[2];
+        const uv_top_left = uv[3];
+
+        // 1
+        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_bottom_right, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+
+        // 2
+        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = p_top_left, .tex_coord = uv_top_left });
+    }
+
+    pub fn addQuadRepeatingP(self: *Self, points: [4]vec2, tex_scaling: f32, material: MaterialRef) void {
+        const buffer = self.getBufferForMaterial(material);
+
+        // Note: using ccw because that's what box2d uses
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = points[0].scale(tex_scaling);
+        const uv_bottom_right = points[1].scale(tex_scaling);
+        const uv_top_right = points[2].scale(tex_scaling);
+        const uv_top_left = points[3].scale(tex_scaling);
+
+        // 1
+        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_bottom_right, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+
+        // 2
+        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = p_top_left, .tex_coord = uv_top_left });
+    }
+
+    //
+    // Add-functions for more complex shapes (made out of triangles or quads)
+    //
+
+    pub fn addSolidCircle(self: *Self, center: vec2, radius: f32, color: Color, material: MaterialRef) void {
         const segments: usize = 32;
         const segment_angle: f32 = 2.0 * std.math.pi / @as(f32, @floatFromInt(segments));
 
@@ -384,206 +338,16 @@ pub const Renderer2D = struct {
                 .x = std.math.cos(angle) * radius,
                 .y = std.math.sin(angle) * radius,
             });
-            self.addTriangle(center, prev_point, point, color);
+
+            self.addTrianglePC([3]vec2{ center, prev_point, point }, color, material);
+
             prev_point = point;
         }
     }
 
-    pub fn addTriangle(self: *Self, p1: vec2, p2: vec2, p3: vec2, color: Color) void {
-        self.triangle_data.append(VertexData{
-            .position = p1,
-            .color = color,
-        }) catch unreachable;
-        self.triangle_data.append(VertexData{
-            .position = p2,
-            .color = color,
-        }) catch unreachable;
-        self.triangle_data.append(VertexData{
-            .position = p3,
-            .color = color,
-        }) catch unreachable;
-    }
-
-    pub fn addTexturedTriangle(self: *Self, p1: vec2, p2: vec2, p3: vec2, color: Color, uv1: vec2, uv2: vec2, uv3: vec2, tex_id: u32) void {
-        self.textured_triangle_data.append(TexturedVertexData{
-            .position = p1,
-            .color = color,
-            .texcoord = uv1,
-            .tex_id = tex_id,
-        }) catch unreachable;
-        self.textured_triangle_data.append(TexturedVertexData{
-            .position = p2,
-            .color = color,
-            .texcoord = uv2,
-            .tex_id = tex_id,
-        }) catch unreachable;
-        self.textured_triangle_data.append(TexturedVertexData{
-            .position = p3,
-            .color = color,
-            .texcoord = uv3,
-            .tex_id = tex_id,
-        }) catch unreachable;
-    }
-
-    pub fn addWoodTriangle(self: *Self, p1: vec2, p2: vec2, p3: vec2, uv1: vec2, uv2: vec2, uv3: vec2) void {
-        self.wood_triangle_data.append(WoodVertexData{
-            .position = p1,
-            .texcoord = uv1,
-        }) catch unreachable;
-        self.wood_triangle_data.append(WoodVertexData{
-            .position = p2,
-            .texcoord = uv2,
-        }) catch unreachable;
-        self.wood_triangle_data.append(WoodVertexData{
-            .position = p3,
-            .texcoord = uv3,
-        }) catch unreachable;
-    }
-
-    pub fn addSolidQuad(self: *Self, points: [4]vec2, color: Color) void {
-        // Note: using ccw because that's what box2d uses
-
-        const p_bottom_left = points[0];
-        const p_bottom_right = points[1];
-        const p_top_right = points[2];
-        const p_top_left = points[3];
-
-        // 1:
-        // bottom left
-        self.triangle_data.append(VertexData{ .position = p_bottom_left, .color = color }) catch unreachable;
-        // bottom right
-        self.triangle_data.append(VertexData{ .position = p_bottom_right, .color = color }) catch unreachable;
-        // top right
-        self.triangle_data.append(VertexData{ .position = p_top_right, .color = color }) catch unreachable;
-
-        // 2:
-        // bottom left
-        self.triangle_data.append(VertexData{ .position = p_bottom_left, .color = color }) catch unreachable;
-        // top right
-        self.triangle_data.append(VertexData{ .position = p_top_right, .color = color }) catch unreachable;
-        // top left
-        self.triangle_data.append(VertexData{ .position = p_top_left, .color = color }) catch unreachable;
-    }
-
-    pub fn addTexturedQuad(self: *Self, points: [4]vec2, color: Color, tex_id: u32) void {
-        // Note: using ccw because that's what box2d uses
-
-        const p_bottom_left = points[0];
-        const p_bottom_right = points[1];
-        const p_top_right = points[2];
-        const p_top_left = points[3];
-
-        const uv_bottom_left = vec2.init(0, 0);
-        const uv_bottom_right = vec2.init(1, 0);
-        const uv_top_right = vec2.init(1, 1);
-        const uv_top_left = vec2.init(0, 1);
-
-        // 1:
-        // bottom left
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
-        // bottom right
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_right, .color = color, .texcoord = uv_bottom_right, .tex_id = tex_id }) catch unreachable;
-        // top right
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
-
-        // 2:
-        // bottom left
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
-        // top right
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
-        // top left
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_left, .color = color, .texcoord = uv_top_left, .tex_id = tex_id }) catch unreachable;
-    }
-
-    pub fn addTexturedQuadRepeating(self: *Self, points: [4]vec2, color: Color, tex_id: u32, tex_scaling: f32) void {
-        // Note: using ccw because that's what box2d uses
-
-        const p_bottom_left = points[0];
-        const p_bottom_right = points[1];
-        const p_top_right = points[2];
-        const p_top_left = points[3];
-
-        const uv_bottom_left = points[0].scale(tex_scaling);
-        const uv_bottom_right = points[1].scale(tex_scaling);
-        const uv_top_right = points[2].scale(tex_scaling);
-        const uv_top_left = points[3].scale(tex_scaling);
-
-        // 1:
-        // bottom left
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
-        // bottom right
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_right, .color = color, .texcoord = uv_bottom_right, .tex_id = tex_id }) catch unreachable;
-        // top right
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
-
-        // 2:
-        // bottom left
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_bottom_left, .color = color, .texcoord = uv_bottom_left, .tex_id = tex_id }) catch unreachable;
-        // top right
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_right, .color = color, .texcoord = uv_top_right, .tex_id = tex_id }) catch unreachable;
-        // top left
-        self.textured_triangle_data.append(TexturedVertexData{ .position = p_top_left, .color = color, .texcoord = uv_top_left, .tex_id = tex_id }) catch unreachable;
-    }
-
-    pub fn addWoodQuad(self: *Self, points: [4]vec2) void {
-        // Note: using ccw because that's what box2d uses
-
-        const p_bottom_left = points[0];
-        const p_bottom_right = points[1];
-        const p_top_right = points[2];
-        const p_top_left = points[3];
-
-        const uv_bottom_left = vec2.init(0, 0);
-        const uv_bottom_right = vec2.init(1, 0);
-        const uv_top_right = vec2.init(1, 1);
-        const uv_top_left = vec2.init(0, 1);
-
-        // 1:
-        // bottom left
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
-        // bottom right
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_right, .texcoord = uv_bottom_right }) catch unreachable;
-        // top right
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
-
-        // 2:
-        // bottom left
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
-        // top right
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
-        // top left
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_left, .texcoord = uv_top_left }) catch unreachable;
-    }
-
-    pub fn addWoodQuadRepeating(self: *Self, points: [4]vec2, tex_scaling: f32) void {
-        // Note: using ccw because that's what box2d uses
-
-        const p_bottom_left = points[0];
-        const p_bottom_right = points[1];
-        const p_top_right = points[2];
-        const p_top_left = points[3];
-
-        const uv_bottom_left = points[0].scale(tex_scaling);
-        const uv_bottom_right = points[1].scale(tex_scaling);
-        const uv_top_right = points[2].scale(tex_scaling);
-        const uv_top_left = points[3].scale(tex_scaling);
-
-        // 1:
-        // bottom left
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
-        // bottom right
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_right, .texcoord = uv_bottom_right }) catch unreachable;
-        // top right
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
-
-        // 2:
-        // bottom left
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_bottom_left, .texcoord = uv_bottom_left }) catch unreachable;
-        // top right
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_right, .texcoord = uv_top_right }) catch unreachable;
-        // top left
-        self.wood_triangle_data.append(WoodVertexData{ .position = p_top_left, .texcoord = uv_top_left }) catch unreachable;
-    }
+    //
+    // Add-functions for text
+    //
 
     pub fn addText(self: *Self, position: vec2, color: Color, comptime fmt: []const u8, args: anytype) void {
         self.text_data.append(TextData{
@@ -601,6 +365,10 @@ pub const Renderer2D = struct {
         data.len = s.len;
     }
 
+    //
+    // ...
+    //
+
     pub fn render(self: *Self, camera: *Camera, dt: f32) void {
         const model: zm.Mat = zm.identity();
         const view = camera.view;
@@ -613,179 +381,80 @@ pub const Renderer2D = struct {
             @floatFromInt(camera.viewport_size[1]),
         };
 
-        // textured triangles
-        if (self.textured_triangle_data.items.len > 0) {
+        // material-based rendering
+        var iter = self.material_vertex_buffers.iterator();
+        while (iter.next()) |entry| {
+            const mat_ref: MaterialRef = entry.key_ptr.*;
+            const dynamic_vertex_buffer: *DynamicVertexBuffer(CommonVertexData) = entry.value_ptr.*;
+
+            const vertex_count = dynamic_vertex_buffer.getVertexCount();
+            if (vertex_count == 0) continue;
+
             // upload data
-            gl.bindBuffer(gl.ARRAY_BUFFER, self.textured_triangle_vbo);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                @intCast(@sizeOf(TexturedVertexData) * self.textured_triangle_data.items.len),
-                self.textured_triangle_data.items.ptr,
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+            dynamic_vertex_buffer.upload();
+            defer dynamic_vertex_buffer.clear();
+
+            // set material
+            const mat: *const Material = self.materials.getMaterial(mat_ref); // TODO xxx xxx xxx
+            self.bindMaterial(mat, camera);
+            defer self.unbindMaterial(mat);
+
+            // set vertex array
+            dynamic_vertex_buffer.bind();
+            defer dynamic_vertex_buffer.unbind();
 
             // render
-            self.textured_triangle_shader.bind();
-            {
-                self.textured_triangle_shader.setMat4("uModel", model);
-                self.textured_triangle_shader.setMat4("uView", view);
-                self.textured_triangle_shader.setMat4("uProjection", projection);
-
-                gl.bindVertexArray(self.textured_triangle_vao);
-
-                // setup texture units
-                var buffer: [128]u8 = undefined;
-                for (self.textures.items, 0..) |texture, texture_index| {
-                    gl.activeTexture(gl.TEXTURE0 + @as(c_uint, @intCast(texture_index)));
-                    gl.bindTexture(gl.TEXTURE_2D, texture.texture.id);
-
-                    const s = std.fmt.bufPrintZ(&buffer, "uTextures[{d}]", .{texture_index}) catch unreachable;
-                    self.textured_triangle_shader.setInt(s, @intCast(texture_index));
-                    // uTextures[0] = GL_TEXTURE0
-                    // uTextures[1] = GL_TEXTURE1
-                    // ...
-                }
-
-                gl.drawArrays(gl.TRIANGLES, 0, @intCast(self.textured_triangle_data.items.len));
-
-                // cleanup texture units
-                for (self.textures.items, 0..) |_, texture_index| {
-                    gl.activeTexture(gl.TEXTURE0 + @as(c_uint, @intCast(texture_index)));
-                    gl.bindTexture(gl.TEXTURE_2D, 0);
-                }
-                gl.activeTexture(gl.TEXTURE0);
-
-                gl.bindVertexArray(0);
-            }
-            self.textured_triangle_shader.unbind();
-
-            // clear buffer
-            self.textured_triangle_data.clearRetainingCapacity();
-        }
-
-        // triangles
-        if (self.triangle_data.items.len > 0) {
-            // upload data
-            gl.bindBuffer(gl.ARRAY_BUFFER, self.triangle_vbo);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                @intCast(@sizeOf(VertexData) * self.triangle_data.items.len),
-                self.triangle_data.items.ptr,
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-
-            // render
-            self.triangle_shader.bind();
-            {
-                self.triangle_shader.setMat4("uModel", model);
-                self.triangle_shader.setMat4("uView", view);
-                self.triangle_shader.setMat4("uProjection", projection);
-
-                gl.bindVertexArray(self.triangle_vao);
-                gl.drawArrays(gl.TRIANGLES, 0, @intCast(self.triangle_data.items.len));
-                gl.bindVertexArray(0);
-            }
-            self.triangle_shader.unbind();
-
-            // clear buffer
-            self.triangle_data.clearRetainingCapacity();
-        }
-
-        // wood triangles
-        if (self.wood_triangle_data.items.len > 0) {
-            // upload data
-            gl.bindBuffer(gl.ARRAY_BUFFER, self.wood_triangle_vbo);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                @intCast(@sizeOf(WoodVertexData) * self.wood_triangle_data.items.len),
-                self.wood_triangle_data.items.ptr,
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-
-            // render
-            self.wood_triangle_shader.bind();
-            self.noise_texture.bind();
-            {
-                self.wood_triangle_shader.setMat4("uModel", model);
-                self.wood_triangle_shader.setMat4("uView", view);
-                self.wood_triangle_shader.setMat4("uProjection", projection);
-
-                self.wood_triangle_shader.setInt("uTexture", 0); // TEXTURE0
-                self.wood_triangle_shader.setFloat("uTime", self.time);
-
-                gl.bindVertexArray(self.wood_triangle_vao);
-                gl.drawArrays(gl.TRIANGLES, 0, @intCast(self.wood_triangle_data.items.len));
-                gl.bindVertexArray(0);
-            }
-            self.noise_texture.unbind();
-            self.wood_triangle_shader.unbind();
-
-            // clear buffer
-            self.wood_triangle_data.clearRetainingCapacity();
+            gl.drawArrays(gl.TRIANGLES, 0, @intCast(vertex_count));
         }
 
         // lines
-        if (self.line_data.items.len > 0) {
+        const line_vertex_count = self.line_vertex_buffer.getVertexCount();
+        if (line_vertex_count > 0) {
             // upload data
-            gl.bindBuffer(gl.ARRAY_BUFFER, self.line_vbo);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                @intCast(@sizeOf(VertexData) * self.line_data.items.len),
-                self.line_data.items.ptr,
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+            self.line_vertex_buffer.upload();
+            defer self.line_vertex_buffer.clear();
+
+            // set material
+            self.line_shader.bind();
+            defer self.line_shader.unbind();
+
+            self.line_shader.setMat4("uModel", model);
+            self.line_shader.setMat4("uView", view);
+            self.line_shader.setMat4("uProjection", projection);
+
+            // set vertex array
+            self.line_vertex_buffer.bind();
+            defer self.line_vertex_buffer.unbind();
 
             // render
-            self.line_shader.bind();
-            {
-                self.line_shader.setMat4("uModel", model);
-                self.line_shader.setMat4("uView", view);
-                self.line_shader.setMat4("uProjection", projection);
-
-                gl.bindVertexArray(self.line_vao);
-                gl.drawArrays(gl.LINES, 0, @intCast(self.line_data.items.len));
-                gl.bindVertexArray(0);
-            }
-            self.line_shader.unbind();
-
-            // clear buffer
-            self.line_data.clearRetainingCapacity();
+            gl.drawArrays(gl.LINES, 0, @intCast(line_vertex_count));
         }
 
         // points
-        if (self.point_data.items.len > 0) {
+        const point_vertex_count = self.point_vertex_buffer.getVertexCount();
+        if (point_vertex_count > 0) {
             // upload data
-            gl.bindBuffer(gl.ARRAY_BUFFER, self.point_vbo);
-            gl.bufferData(
-                gl.ARRAY_BUFFER,
-                @intCast(@sizeOf(PointVertexData) * self.point_data.items.len),
-                self.point_data.items.ptr,
-                gl.DYNAMIC_DRAW,
-            );
-            gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+            self.point_vertex_buffer.upload();
+            defer self.point_vertex_buffer.clear();
+
+            // set material
+            self.point_shader.bind();
+            defer self.point_shader.unbind();
+
+            self.point_shader.setMat4("uModel", model);
+            self.point_shader.setMat4("uView", view);
+            self.point_shader.setMat4("uProjection", projection);
+            self.point_shader.setVec2("uViewportSize", viewport_size);
+
+            gl.enable(gl.PROGRAM_POINT_SIZE);
+            defer gl.disable(gl.PROGRAM_POINT_SIZE);
+
+            // set vertex array
+            self.point_vertex_buffer.bind();
+            defer self.point_vertex_buffer.unbind();
 
             // render
-            self.point_shader.bind();
-            {
-                self.point_shader.setMat4("uModel", model);
-                self.point_shader.setMat4("uView", view);
-                self.point_shader.setMat4("uProjection", projection);
-                self.point_shader.setVec2("uViewportSize", viewport_size);
-
-                gl.enable(gl.PROGRAM_POINT_SIZE);
-                gl.bindVertexArray(self.point_vao);
-                gl.drawArrays(gl.POINTS, 0, @intCast(self.point_data.items.len));
-                gl.bindVertexArray(0);
-                gl.disable(gl.PROGRAM_POINT_SIZE);
-            }
-            self.point_shader.unbind();
-
-            // clear buffer
-            self.point_data.clearRetainingCapacity();
+            gl.drawArrays(gl.POINTS, 0, @intCast(point_vertex_count));
         }
     }
 
@@ -831,5 +500,56 @@ pub const Renderer2D = struct {
 
             self.text_data.clearRetainingCapacity();
         }
+    }
+
+    fn bindMaterial(self: *Self, mat: *const Material, camera: *const Camera) void {
+        _ = self;
+
+        const model: zm.Mat = zm.identity();
+        const view = camera.view;
+        const projection = camera.projection;
+
+        mat.shader.bind();
+
+        mat.shader.setMat4("uModel", model);
+        mat.shader.setMat4("uView", view);
+        mat.shader.setMat4("uProjection", projection);
+
+        if (mat.textures.len > 0) {
+            // bind texture(s)
+            for (mat.textures, 0..) |texture, texture_index| {
+                gl.activeTexture(gl.TEXTURE0 + @as(c_uint, @intCast(texture_index)));
+                gl.bindTexture(gl.TEXTURE_2D, texture.id);
+            }
+            gl.activeTexture(gl.TEXTURE0); // activate unit0 by default
+
+            // assign texture-unit(s) to shader uniforms
+            if (mat.textures.len == 1) {
+                mat.shader.setInt("uTexture", 0); // GL_TEXTURE0
+            } else {
+                var buffer: [128]u8 = undefined;
+                for (0..mat.textures.len) |texture_index| {
+                    const s = std.fmt.bufPrintZ(&buffer, "uTextures[{d}]", .{texture_index}) catch unreachable;
+                    mat.shader.setInt(s, @intCast(texture_index));
+                    // uTextures[0] = GL_TEXTURE0
+                    // uTextures[1] = GL_TEXTURE1
+                    // ...
+                }
+            }
+        }
+    }
+
+    fn unbindMaterial(self: *Self, mat: *const Material) void {
+        _ = self;
+
+        if (mat.textures.len > 0) {
+            for (0..mat.textures.len) |texture_index| {
+                gl.activeTexture(gl.TEXTURE0 + @as(c_uint, @intCast(texture_index)));
+                gl.bindTexture(gl.TEXTURE_2D, 0);
+            }
+            gl.activeTexture(gl.TEXTURE0); // activate unit0 by default
+        }
+
+        mat.shader.unbind();
     }
 };
