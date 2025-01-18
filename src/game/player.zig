@@ -38,6 +38,7 @@ pub const PlayerPose = union(enum) {
 
 pub const Player = struct {
     const Self = @This();
+    const DebugLayer = engine.Renderer2D.Layers.Debug;
 
     def: PlayerDef = PlayerDef{},
 
@@ -268,7 +269,7 @@ pub const Player = struct {
             avg_pos = avg_pos.add(contact.pos_world);
             avg_normal = avg_normal.add(contact.normal);
 
-            renderer.addLine(t.pos, contact.pos_world, Color.green);
+            renderer.addLine(t.pos, contact.pos_world, DebugLayer, Color.green);
             //renderer.addText(contact.pos_world, Color.white, "best1 {d:.1}", .{best_score1});
         }
         if (best_contact2) |contact| {
@@ -276,7 +277,7 @@ pub const Player = struct {
             avg_pos = avg_pos.add(contact.pos_world);
             avg_normal = avg_normal.add(contact.normal);
 
-            renderer.addLine(t.pos, contact.pos_world, Color.green);
+            renderer.addLine(t.pos, contact.pos_world, DebugLayer, Color.green);
             //renderer.addText(contact.pos_world, Color.white, "best2 {d:.1}", .{best_score2});
         }
 
@@ -347,7 +348,7 @@ pub const Player = struct {
 
         const ground_contacts = self.findGroundContacts(renderer);
 
-        renderer.addText(player_position.add(vec2.init(0, 3)), Color.white, "vel {d:.2} mass {d:.2}", .{ player_velocity, player_mass });
+        renderer.addText(player_position.add(vec2.init(0, 3)), DebugLayer, Color.white, "vel {d:.2} mass {d:.2}", .{ player_velocity, player_mass });
 
         // move?
         if (ground_contacts.contact_count > 0) {
@@ -448,7 +449,7 @@ pub const Player = struct {
 
                 // clamp force here?
 
-                renderer.addLine(player_position, player_position.add(f_total_vec), Color.blue);
+                renderer.addLine(player_position, player_position.add(f_total_vec), DebugLayer, Color.blue);
 
                 const count_f32: f32 = @floatFromInt(ground_contacts.contact_count);
                 const force_per_contact = f_total_vec.neg().scale(1 / count_f32);

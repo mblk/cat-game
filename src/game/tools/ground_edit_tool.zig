@@ -28,6 +28,7 @@ const Selection = union(enum) {
 
 pub const GroundEditTool = struct {
     const Self = GroundEditTool;
+    const Layer = engine.Renderer2D.Layers.Tools;
 
     allocator: std.mem.Allocator,
     world: *World,
@@ -77,8 +78,8 @@ pub const GroundEditTool = struct {
                 if (self.world.getGroundSegment(mouse_position, 10.0)) |ground_segment_index| {
                     const ground_segment = self.world.ground_segments.items[ground_segment_index.index];
 
-                    self.renderer2D.addLine(mouse_position, ground_segment.position, Color.red);
-                    self.renderer2D.addPointWithPixelSize(ground_segment.position, 20.0, Color.green);
+                    self.renderer2D.addLine(mouse_position, ground_segment.position, Layer, Color.red);
+                    self.renderer2D.addPointWithPixelSize(ground_segment.position, 20.0, Layer, Color.green);
 
                     if (input.consumeMouseButtonDownEvent(.left)) {
                         self.selection = .{ .GroundSegment = ground_segment_index };
@@ -90,8 +91,8 @@ pub const GroundEditTool = struct {
                     const ground_point = ground_segment.points.items[ground_point_index.ground_point_index];
                     const p = ground_segment.position.add(ground_point);
 
-                    self.renderer2D.addLine(mouse_position, p, Color.red);
-                    self.renderer2D.addPointWithPixelSize(p, 20.0, Color.green);
+                    self.renderer2D.addLine(mouse_position, p, Layer, Color.red);
+                    self.renderer2D.addPointWithPixelSize(p, 20.0, Layer, Color.green);
 
                     if (input.consumeMouseButtonDownEvent(.left)) {
                         self.selection = .{ .GroundPoint = ground_point_index };
@@ -183,8 +184,8 @@ pub const GroundEditTool = struct {
                     const p3_local = ground_segment.points.items[prev_point_index];
                     const p3 = ground_segment.position.add(p3_local);
 
-                    self.renderer2D.addLine(p1, p2, Color.red);
-                    self.renderer2D.addLine(p2, p3, Color.red);
+                    self.renderer2D.addLine(p1, p2, Layer, Color.red);
+                    self.renderer2D.addLine(p2, p3, Layer, Color.red);
 
                     // create new point?
                     if (input.consumeMouseButtonDownEvent(.left)) {
@@ -208,7 +209,7 @@ pub const GroundEditTool = struct {
 
         for (self.world.ground_segments.items) |*segment| {
             // show grab handle
-            self.renderer2D.addPointWithPixelSize(segment.position, 15.0, Color.white);
+            self.renderer2D.addPointWithPixelSize(segment.position, 15.0, Layer, Color.white);
         }
 
         switch (self.selection) {
@@ -216,7 +217,7 @@ pub const GroundEditTool = struct {
             .GroundSegment => |segment_index| {
                 const segment = &self.world.ground_segments.items[segment_index.index];
 
-                self.renderer2D.addPointWithPixelSize(segment.position, 20.0, Color.red);
+                self.renderer2D.addPointWithPixelSize(segment.position, 20.0, Layer, Color.red);
             },
             .GroundPoint => |point_index| {
                 const segment: *GroundSegment = &self.world.ground_segments.items[point_index.ground_segment_index];
@@ -224,7 +225,7 @@ pub const GroundEditTool = struct {
 
                 const p = segment.position.add(point);
 
-                self.renderer2D.addPointWithPixelSize(p, 20.0, Color.red);
+                self.renderer2D.addPointWithPixelSize(p, 20.0, Layer, Color.red);
             },
         }
     }

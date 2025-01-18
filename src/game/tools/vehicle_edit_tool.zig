@@ -53,6 +53,7 @@ const Mode = union(enum) {
 
 pub const VehicleEditTool = struct {
     const Self = VehicleEditTool;
+    const Layer = engine.Renderer2D.Layers.Tools;
 
     self_allocator: std.mem.Allocator, // TODO not sure, same as long-term-alloc?
     long_term_allocator: std.mem.Allocator,
@@ -173,7 +174,7 @@ pub const VehicleEditTool = struct {
                 if (self.world.getClosestVehicleAndBlockOrDevice(mouse_position, max_select_distance)) |result| {
                     switch (result) {
                         .VehicleAndBlock => |vehicle_and_block| {
-                            self.renderer2D.addLine(mouse_position, vehicle_and_block.block_world, Color.red);
+                            self.renderer2D.addLine(mouse_position, vehicle_and_block.block_world, Layer, Color.red);
 
                             // select block?
                             if (input.consumeMouseButtonDownEvent(.left)) {
@@ -181,7 +182,7 @@ pub const VehicleEditTool = struct {
                             }
                         },
                         .VehicleAndDevice => |vehicle_and_device| {
-                            self.renderer2D.addLine(mouse_position, vehicle_and_device.device_world, Color.red);
+                            self.renderer2D.addLine(mouse_position, vehicle_and_device.device_world, Layer, Color.red);
 
                             // select device?
                             if (input.consumeMouseButtonDownEvent(.left)) {
@@ -203,7 +204,7 @@ pub const VehicleEditTool = struct {
                     // show normal
                     {
                         const n = result.normal_world;
-                        self.renderer2D.addLine(result.attach_world, result.attach_world.add(n), Color.green);
+                        self.renderer2D.addLine(result.attach_world, result.attach_world.add(n), Layer, Color.green);
                     }
 
                     const vehicle = self.world.getVehicle(result.vehicle_ref).?;
@@ -262,7 +263,7 @@ pub const VehicleEditTool = struct {
 
                 // change selection?
                 if (self.world.getClosestVehicleAndBlock(mouse_position, max_select_distance)) |result| {
-                    self.renderer2D.addLine(mouse_position, result.block_world, Color.red);
+                    self.renderer2D.addLine(mouse_position, result.block_world, Layer, Color.red);
 
                     if (input.consumeMouseButtonDownEvent(.left)) {
                         if (std.meta.eql(result.ref.block, vehicle_and_block_ref.block)) {
@@ -374,7 +375,7 @@ pub const VehicleEditTool = struct {
 
                     const p = vehicle.transformLocalToWorld(block.local_position);
 
-                    self.renderer2D.addPointWithPixelSize(p, 10.0, Color.red);
+                    self.renderer2D.addPointWithPixelSize(p, 10.0, Layer, Color.red);
                 }
             },
 
@@ -384,7 +385,7 @@ pub const VehicleEditTool = struct {
                 if (self.world.getVehicle(vehicle_ref)) |vehicle| {
                     const p = vec2.from_b2(b2.b2Body_GetWorldCenterOfMass(vehicle.body_id));
 
-                    self.renderer2D.addPointWithPixelSize(p, 20.0, Color.green);
+                    self.renderer2D.addPointWithPixelSize(p, 20.0, Layer, Color.green);
                 }
             },
 
@@ -408,7 +409,7 @@ pub const VehicleEditTool = struct {
                 const p1 = p_world.add(n_world.scale(0.2));
                 const p2 = p_world.sub(n_world.scale(0.2));
 
-                self.renderer2D.addLine(p1, p2, Color.green);
+                self.renderer2D.addLine(p1, p2, Layer, Color.green);
             }
         }
     }
@@ -458,10 +459,10 @@ pub const VehicleEditTool = struct {
         const p3_world = vec2.from_b2(b2.b2TransformPoint(transform, p3_local.to_b2()));
         const p4_world = vec2.from_b2(b2.b2TransformPoint(transform, p4_local.to_b2()));
 
-        self.renderer2D.addLine(p1_world, p2_world, color);
-        self.renderer2D.addLine(p2_world, p3_world, color);
-        self.renderer2D.addLine(p3_world, p4_world, color);
-        self.renderer2D.addLine(p4_world, p1_world, color);
+        self.renderer2D.addLine(p1_world, p2_world, Layer, color);
+        self.renderer2D.addLine(p2_world, p3_world, Layer, color);
+        self.renderer2D.addLine(p3_world, p4_world, Layer, color);
+        self.renderer2D.addLine(p4_world, p1_world, Layer, color);
     }
 
     fn renderBlockPreview(self: *Self, block_def: BlockDef, world_position: vec2, color: Color) void {
@@ -481,10 +482,10 @@ pub const VehicleEditTool = struct {
         const p3_world = world_position.add(p3_local);
         const p4_world = world_position.add(p4_local);
 
-        self.renderer2D.addLine(p1_world, p2_world, color);
-        self.renderer2D.addLine(p2_world, p3_world, color);
-        self.renderer2D.addLine(p3_world, p4_world, color);
-        self.renderer2D.addLine(p4_world, p1_world, color);
+        self.renderer2D.addLine(p1_world, p2_world, Layer, color);
+        self.renderer2D.addLine(p2_world, p3_world, Layer, color);
+        self.renderer2D.addLine(p3_world, p4_world, Layer, color);
+        self.renderer2D.addLine(p4_world, p1_world, Layer, color);
     }
 
     fn renderDevicePreview(self: *Self, def: DeviceDef, vehicle: *Vehicle, local_position: vec2, color: Color) void {
@@ -493,8 +494,8 @@ pub const VehicleEditTool = struct {
                 //
                 const center_world_position = vehicle.transformLocalToWorld(local_position);
 
-                self.renderer2D.addPointWithPixelSize(center_world_position, 3.0, color);
-                self.renderer2D.addCircle(center_world_position, wheel_def.radius, color);
+                self.renderer2D.addPointWithPixelSize(center_world_position, 3.0, Layer, color);
+                self.renderer2D.addCircle(center_world_position, wheel_def.radius, Layer, color);
 
                 // TODO suspension
             },
@@ -720,8 +721,8 @@ pub const VehicleEditTool = struct {
 
         const vehicle_com_world = vehicle.getCenterOfMassWorld();
 
-        self.renderer2D.addCircle(vehicle_com_world, 1.0, Color.red);
-        self.renderer2D.addLine(mouse_pos_world, vehicle_com_world, Color.red);
+        self.renderer2D.addCircle(vehicle_com_world, 1.0, Layer, Color.red);
+        self.renderer2D.addLine(mouse_pos_world, vehicle_com_world, Layer, Color.red);
     }
 
     fn focusVehicle(self: *Self, vehicle: *const Vehicle) void {

@@ -23,25 +23,25 @@ const Color = @import("math.zig").Color;
 
 // Vertex data for material-based rendering
 const CommonVertexData = struct {
-    position: vec2 = vec2.zero, // TODO vec3 for layers
+    position: [3]f32,
     color: Color = Color.white,
-    tex_coord: vec2 = vec2.zero,
+    tex_coord: vec2 = vec2.zero, // TODO [2]f32 ?
 };
 
 const PointVertexData = struct {
-    position: vec2,
+    position: [3]f32,
     color: Color,
     size: f32,
     scale: f32,
 };
 
 const LineVertexData = struct {
-    position: vec2,
+    position: [3]f32,
     color: Color,
 };
 
 const TextData = struct {
-    position: vec2,
+    position: [3]f32,
     color: Color,
     buffer: [128]u8,
     len: usize,
@@ -49,6 +49,16 @@ const TextData = struct {
 
 pub const Renderer2D = struct {
     const Self = @This();
+
+    pub const Layers = struct {
+        pub const Min = 0;
+        pub const Max = 1000;
+
+        pub const World = 0; // 0..99
+        pub const Tools = 100; // 100..199
+        pub const ZBox = 200; // ...
+        pub const Debug = 300;
+    };
 
     allocator: std.mem.Allocator,
     content_manager: *ContentManager,
@@ -146,40 +156,79 @@ pub const Renderer2D = struct {
         @panic("No dynamic vertex buffer for material");
     }
 
+    inline fn getLayerZ(layer: i32) f32 {
+        std.debug.assert(layer >= Layers.Min);
+        std.debug.assert(layer < Layers.Max);
+
+        const v: f32 = @floatFromInt(layer);
+        const z: f32 = -10.0 + v * 0.01;
+        return z;
+    }
+
     //
     // Add-functions for points & lines
     //
 
-    pub fn addPoint(self: *Self, position: vec2, size: f32, color: Color) void {
+    pub fn addPoint(
+        self: *Self,
+        position: vec2,
+        size: f32,
+        layer: i32,
+        color: Color,
+    ) void {
+        const z = getLayerZ(layer);
+
         self.point_vertex_buffer.addVertex(.{
-            .position = position,
+            .position = [3]f32{ position.x, position.y, z },
             .color = color,
             .size = size,
             .scale = 1.0, // size is worldpos
         });
     }
 
-    pub fn addPointWithPixelSize(self: *Self, position: vec2, size: f32, color: Color) void {
+    pub fn addPointWithPixelSize(
+        self: *Self,
+        position: vec2,
+        size: f32,
+        layer: i32,
+        color: Color,
+    ) void {
+        const z = getLayerZ(layer);
+
         self.point_vertex_buffer.addVertex(.{
-            .position = position,
+            .position = [3]f32{ position.x, position.y, z },
             .color = color,
             .size = size,
             .scale = 0.0, // size is pixels
         });
     }
 
-    pub fn addLine(self: *Self, p1: vec2, p2: vec2, color: Color) void {
+    pub fn addLine(
+        self: *Self,
+        p1: vec2,
+        p2: vec2,
+        layer: i32,
+        color: Color,
+    ) void {
+        const z = getLayerZ(layer);
+
         self.line_vertex_buffer.addVertex(.{
-            .position = p1,
+            .position = [3]f32{ p1.x, p1.y, z },
             .color = color,
         });
         self.line_vertex_buffer.addVertex(.{
-            .position = p2,
+            .position = [3]f32{ p2.x, p2.y, z },
             .color = color,
         });
     }
 
-    pub fn addCircle(self: *Self, center: vec2, radius: f32, color: Color) void {
+    pub fn addCircle(
+        self: *Self,
+        center: vec2,
+        radius: f32,
+        layer: i32,
+        color: Color,
+    ) void {
         const segments: usize = 32;
         const segment_angle: f32 = 2.0 * std.math.pi / @as(f32, @floatFromInt(segments));
 
@@ -190,7 +239,7 @@ pub const Renderer2D = struct {
                 .x = std.math.cos(angle) * radius,
                 .y = std.math.sin(angle) * radius,
             });
-            self.addLine(prev_point, point, color);
+            self.addLine(prev_point, point, layer, color);
             prev_point = point;
         }
     }
@@ -199,31 +248,61 @@ pub const Renderer2D = struct {
     // Add-functions for triangles / quads
     //
 
-    pub fn addTriangleP(self: *Self, pos: [3]vec2, material: MaterialRef) void {
+    pub fn addTriangleP(
+        self: *Self,
+        pos: [3]vec2,
+        layer: i32,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
-        buffer.addVertex(.{ .position = pos[0] });
-        buffer.addVertex(.{ .position = pos[1] });
-        buffer.addVertex(.{ .position = pos[2] });
+        buffer.addVertex(.{ .position = [3]f32{ pos[0].x, pos[0].y, z } });
+        buffer.addVertex(.{ .position = [3]f32{ pos[1].x, pos[1].y, z } });
+        buffer.addVertex(.{ .position = [3]f32{ pos[2].x, pos[2].y, z } });
     }
 
-    pub fn addTrianglePC(self: *Self, pos: [3]vec2, color: Color, material: MaterialRef) void {
+    pub fn addTrianglePC(
+        self: *Self,
+        pos: [3]vec2,
+        layer: i32,
+        color: Color,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
-        buffer.addVertex(.{ .position = pos[0], .color = color });
-        buffer.addVertex(.{ .position = pos[1], .color = color });
-        buffer.addVertex(.{ .position = pos[2], .color = color });
+        buffer.addVertex(.{ .position = [3]f32{ pos[0].x, pos[0].y, z }, .color = color });
+        buffer.addVertex(.{ .position = [3]f32{ pos[1].x, pos[1].y, z }, .color = color });
+        buffer.addVertex(.{ .position = [3]f32{ pos[2].x, pos[2].y, z }, .color = color });
     }
 
-    pub fn addTrianglePU(self: *Self, pos: [3]vec2, uv: [3]vec2, material: MaterialRef) void {
+    pub fn addTrianglePU(
+        self: *Self,
+        pos: [3]vec2,
+        uv: [3]vec2,
+        layer: i32,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
-        buffer.addVertex(.{ .position = pos[0], .tex_coord = uv[0] });
-        buffer.addVertex(.{ .position = pos[1], .tex_coord = uv[1] });
-        buffer.addVertex(.{ .position = pos[2], .tex_coord = uv[2] });
+        buffer.addVertex(.{ .position = [3]f32{ pos[0].x, pos[0].y, z }, .tex_coord = uv[0] });
+        buffer.addVertex(.{ .position = [3]f32{ pos[1].x, pos[1].y, z }, .tex_coord = uv[1] });
+        buffer.addVertex(.{ .position = [3]f32{ pos[2].x, pos[2].y, z }, .tex_coord = uv[2] });
     }
 
-    pub fn addQuadP(self: *Self, points: [4]vec2, material: MaterialRef) void {
+    pub fn addQuadP(
+        self: *Self,
+        points: [4]vec2,
+        layer: i32,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
         // Note: using ccw because that's what box2d uses
@@ -238,17 +317,25 @@ pub const Renderer2D = struct {
         const uv_top_left = vec2.init(0, 1);
 
         // 1
-        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_bottom_right, .tex_coord = uv_bottom_right });
-        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_right.x, p_bottom_right.y, z }, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .tex_coord = uv_top_right });
 
         // 2
-        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
-        buffer.addVertex(.{ .position = p_top_left, .tex_coord = uv_top_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_left.x, p_top_left.y, z }, .tex_coord = uv_top_left });
     }
 
-    pub fn addQuadPC(self: *Self, points: [4]vec2, color: Color, material: MaterialRef) void {
+    pub fn addQuadPC(
+        self: *Self,
+        points: [4]vec2,
+        layer: i32,
+        color: Color,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
         // Note: using ccw because that's what box2d uses
@@ -263,17 +350,25 @@ pub const Renderer2D = struct {
         const uv_top_left = vec2.init(0, 1);
 
         // 1
-        buffer.addVertex(.{ .position = p_bottom_left, .color = color, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_bottom_right, .color = color, .tex_coord = uv_bottom_right });
-        buffer.addVertex(.{ .position = p_top_right, .color = color, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .color = color, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_right.x, p_bottom_right.y, z }, .color = color, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .color = color, .tex_coord = uv_top_right });
 
         // 2
-        buffer.addVertex(.{ .position = p_bottom_left, .color = color, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_top_right, .color = color, .tex_coord = uv_top_right });
-        buffer.addVertex(.{ .position = p_top_left, .color = color, .tex_coord = uv_top_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .color = color, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .color = color, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_left.x, p_top_left.y, z }, .color = color, .tex_coord = uv_top_left });
     }
 
-    pub fn addQuadPU(self: *Self, points: [4]vec2, uv: [4]vec2, material: MaterialRef) void {
+    pub fn addQuadPU(
+        self: *Self,
+        points: [4]vec2,
+        uv: [4]vec2,
+        layer: i32,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
         // Note: using ccw because that's what box2d uses
@@ -288,17 +383,25 @@ pub const Renderer2D = struct {
         const uv_top_left = uv[3];
 
         // 1
-        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_bottom_right, .tex_coord = uv_bottom_right });
-        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_right.x, p_bottom_right.y, z }, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .tex_coord = uv_top_right });
 
         // 2
-        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
-        buffer.addVertex(.{ .position = p_top_left, .tex_coord = uv_top_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_left.x, p_top_left.y, z }, .tex_coord = uv_top_left });
     }
 
-    pub fn addQuadRepeatingP(self: *Self, points: [4]vec2, tex_scaling: f32, material: MaterialRef) void {
+    pub fn addQuadRepeatingP(
+        self: *Self,
+        points: [4]vec2,
+        layer: i32,
+        tex_scaling: f32,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
         const buffer = self.getBufferForMaterial(material);
 
         // Note: using ccw because that's what box2d uses
@@ -313,21 +416,28 @@ pub const Renderer2D = struct {
         const uv_top_left = points[3].scale(tex_scaling);
 
         // 1
-        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_bottom_right, .tex_coord = uv_bottom_right });
-        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_right.x, p_bottom_right.y, z }, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .tex_coord = uv_top_right });
 
         // 2
-        buffer.addVertex(.{ .position = p_bottom_left, .tex_coord = uv_bottom_left });
-        buffer.addVertex(.{ .position = p_top_right, .tex_coord = uv_top_right });
-        buffer.addVertex(.{ .position = p_top_left, .tex_coord = uv_top_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_left.x, p_top_left.y, z }, .tex_coord = uv_top_left });
     }
 
     //
     // Add-functions for more complex shapes (made out of triangles or quads)
     //
 
-    pub fn addSolidCircle(self: *Self, center: vec2, radius: f32, color: Color, material: MaterialRef) void {
+    pub fn addSolidCircle(
+        self: *Self,
+        center: vec2,
+        radius: f32,
+        layer: i32,
+        color: Color,
+        material: MaterialRef,
+    ) void {
         const segments: usize = 32;
         const segment_angle: f32 = 2.0 * std.math.pi / @as(f32, @floatFromInt(segments));
 
@@ -339,7 +449,9 @@ pub const Renderer2D = struct {
                 .y = std.math.sin(angle) * radius,
             });
 
-            self.addTrianglePC([3]vec2{ center, prev_point, point }, color, material);
+            // TODO calculate UV
+
+            self.addTrianglePC([3]vec2{ center, prev_point, point }, layer, color, material);
 
             prev_point = point;
         }
@@ -349,9 +461,18 @@ pub const Renderer2D = struct {
     // Add-functions for text
     //
 
-    pub fn addText(self: *Self, position: vec2, color: Color, comptime fmt: []const u8, args: anytype) void {
+    pub fn addText(
+        self: *Self,
+        position: vec2,
+        layer: i32,
+        color: Color,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) void {
+        const z = getLayerZ(layer);
+
         self.text_data.append(TextData{
-            .position = position,
+            .position = [3]f32{ position.x, position.y, z },
             .color = color,
             .buffer = undefined,
             .len = 0,
@@ -485,7 +606,8 @@ pub const Renderer2D = struct {
             } });
 
             for (self.text_data.items) |*text_data| {
-                const screen_pos = camera.worldToScreen(text_data.position);
+                const world_pos = vec2.init(text_data.position[0], text_data.position[1]);
+                const screen_pos = camera.worldToScreen(world_pos);
 
                 zgui.setCursorPosX(screen_pos.x);
                 zgui.setCursorPosY(screen_pos.y);

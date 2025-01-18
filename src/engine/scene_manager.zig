@@ -278,13 +278,16 @@ pub const SceneManager = struct {
         // clear and render
         //
         gl.clearColor(self.render_clear_color[0], self.render_clear_color[1], self.render_clear_color[2], 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
         if (self.render_wireframe) {
             gl.polygonMode(gl.FRONT_AND_BACK, gl.LINE);
         } else {
             gl.polygonMode(gl.FRONT_AND_BACK, gl.FILL);
         }
+
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LESS);
 
         if (self.active_scene) |scene| {
             const render_context = RenderContext{

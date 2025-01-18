@@ -407,7 +407,12 @@ pub const ThrusterDevice = struct {
 
             b2.b2Body_ApplyForce(self.parent_body_id, force.to_b2(), position_world.to_b2(), true);
 
-            renderer.addLine(position_world, position_world.add(force_dir_world.neg()), engine.Color.red);
+            renderer.addLine(
+                position_world,
+                position_world.add(force_dir_world.neg()),
+                engine.Renderer2D.Layers.Debug,
+                engine.Color.red,
+            );
         }
     }
 };

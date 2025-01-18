@@ -87,19 +87,19 @@ const Renderer2DTestScene = struct {
             const c3 = Color.blue;
             const c4 = Color.init(255, 255, 0, 255);
 
-            self.renderer.addPoint(p1, 1.0, c1);
-            self.renderer.addPoint(p2, 2.5, c2);
-            self.renderer.addPoint(p3, 2.5, c3);
-            self.renderer.addPoint(p4, 5.0, c4);
-            self.renderer.addPointWithPixelSize(p5, 50.0, c1);
+            self.renderer.addPoint(p1, 1.0, 0, c1);
+            self.renderer.addPoint(p2, 2.5, 0, c2);
+            self.renderer.addPoint(p3, 2.5, 0, c3);
+            self.renderer.addPoint(p4, 5.0, 0, c4);
+            self.renderer.addPointWithPixelSize(p5, 50.0, 0, c1);
 
-            self.renderer.addLine(p1, p2, c1);
-            self.renderer.addLine(p2, p3, c2);
-            self.renderer.addLine(p3, p4, c3);
-            self.renderer.addLine(p4, p1, c4);
+            self.renderer.addLine(p1, p2, 0, c1);
+            self.renderer.addLine(p2, p3, 0, c2);
+            self.renderer.addLine(p3, p4, 0, c3);
+            self.renderer.addLine(p4, p1, 0, c4);
 
-            self.renderer.addCircle(vec2.init(0, -10), 1.0, Color.red);
-            self.renderer.addCircle(vec2.init(5, -10), 2.0, Color.green);
+            self.renderer.addCircle(vec2.init(0, -10), 1.0, 0, Color.red);
+            self.renderer.addCircle(vec2.init(5, -10), 2.0, 0, Color.green);
 
             // cw
             self.renderer.addTrianglePC(
@@ -108,6 +108,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(-30.0, 30.0),
                     vec2.init(0.0, 30.0),
                 },
+                0,
                 Color.blue,
                 self.mat_default,
             );
@@ -119,6 +120,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(-30.0, -30.0),
                     vec2.init(0.0, -30.0),
                 },
+                0,
                 Color.red,
                 self.mat_default,
             );
@@ -136,6 +138,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(0, 0),
                     vec2.init(1, 0),
                 },
+                0,
                 self.mat_default,
             );
             self.renderer.addTrianglePU(
@@ -150,6 +153,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(0, 0),
                     vec2.init(1, 0),
                 },
+                0,
                 self.mat_textured,
             );
             self.renderer.addTrianglePU(
@@ -164,6 +168,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(0, 0),
                     vec2.init(1, 0),
                 },
+                0,
                 self.mat_wood,
             );
 
@@ -174,6 +179,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(-30, -30),
                     vec2.init(-60, -30),
                 },
+                0,
                 Color.white,
                 self.mat_default,
             );
@@ -184,6 +190,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(-60, -30),
                     vec2.init(-90, -30),
                 },
+                0,
                 Color.white,
                 self.mat_textured,
             );
@@ -194,6 +201,7 @@ const Renderer2DTestScene = struct {
                     vec2.init(-90, -30),
                     vec2.init(-120, -30),
                 },
+                0,
                 Color.white,
                 self.mat_wood,
             );
@@ -205,18 +213,18 @@ const Renderer2DTestScene = struct {
                 vec2.init(50, 0),
                 vec2.init(50, 50),
                 vec2.init(0, 50),
-            }, self.mat_wood);
+            }, 0, self.mat_wood);
 
             self.renderer.addQuadRepeatingP([_]vec2{
                 vec2.init(0, -50),
                 vec2.init(150, -50),
                 vec2.init(150, 0),
                 vec2.init(0, 0),
-            }, 1.0 / 50.0, self.mat_wood);
+            }, 0, 1.0 / 50.0, self.mat_wood);
         }
 
-        self.renderer.addText(vec2.init(0, 0), Color.red, "Hello !", .{});
-        self.renderer.addText(vec2.init(0, -10), Color.green, "World !", .{});
+        self.renderer.addText(vec2.init(0, 0), 0, Color.red, "Hello !", .{});
+        self.renderer.addText(vec2.init(0, -10), 0, Color.green, "World !", .{});
 
         self.renderer.render(&self.camera, context.dt);
     }

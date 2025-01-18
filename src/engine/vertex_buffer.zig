@@ -94,6 +94,14 @@ pub fn DynamicVertexBuffer(comptime T: type) type {
                 };
             }
 
+            if (AttributeType == [3]f32) {
+                return .{
+                    .size = 3,
+                    .type = gl.FLOAT,
+                    .norm = gl.FALSE,
+                };
+            }
+
             if (AttributeType == Color) {
                 return .{
                     .size = 3,

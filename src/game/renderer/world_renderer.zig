@@ -40,9 +40,52 @@ pub const WorldRenderer = struct {
     mat_wood: engine.MaterialRef,
     mat_cardboard: engine.MaterialRef,
 
-    pub fn init(self: *Self, renderer2D: *Renderer2D) !void {
-        //
+    const Layers = struct {
+        const _base = Renderer2D.Layers.World;
 
+        const Background = _base + 0;
+        const Ground = _base + 10;
+        const Outer_Bounds = _base + 20;
+        const Vehicle_Block = _base + 30;
+        const Vehicle_Device = _base + 40;
+        const Items = _base + 50;
+        const Player = _base + 60;
+        const Overlay = _base + 70;
+    };
+
+    // const LLL = enum {
+    //     Background,
+    //     Outer_Bounds,
+    //     Ground,
+    // };
+    // const LLL2: type = makeLayersEnum(LLL, Renderer2D.Layers.Tools);
+    // const LayerValues: LLL2 = undefined;
+
+    // fn makeLayersEnum(comptime T: type, start_value: i32) type {
+    //     const fieldInfos = @typeInfo(T).@"enum".fields;
+
+    //     var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
+    //     var decls = [_]std.builtin.Type.Declaration{};
+
+    //     var next_value: i32 = start_value;
+
+    //     inline for (fieldInfos, 0..) |field, i| {
+    //         //@compileLog("iter " ++ field.name);
+    //         enumDecls[i] = .{ .name = field.name ++ "", .value = next_value };
+    //         next_value += 1;
+    //     }
+
+    //     return @Type(.{
+    //         .@"enum" = .{
+    //             .tag_type = i32,
+    //             .fields = &enumDecls,
+    //             .decls = &decls,
+    //             .is_exhaustive = true,
+    //         },
+    //     });
+    // }
+
+    pub fn init(self: *Self, renderer2D: *Renderer2D) !void {
         self.* = Self{
             .renderer2D = renderer2D,
 
@@ -63,7 +106,7 @@ pub const WorldRenderer = struct {
     pub fn render(self: *Self, world: *const World, camera: *const Camera) void {
 
         //
-        //self.renderBackground(camera);
+        self.renderBackground(camera);
         self.renderOuterBounds(world);
         self.renderStartFinish(world);
 
@@ -103,25 +146,11 @@ pub const WorldRenderer = struct {
 
         const points = [4]vec2{ p1, p2, p3, p4 };
 
-        self.renderer2D.addQuadP(points, self.mat_background);
+        self.renderer2D.addQuadP(points, Layers.Background, self.mat_background);
     }
 
     fn renderOuterBounds(self: *Self, world: *const World) void {
         const hs = world.settings.size.scale(0.5);
-
-        if (false) {
-            const points = [4]vec2{
-                vec2.init(-hs.x, -hs.y),
-                vec2.init(hs.x, -hs.y),
-                vec2.init(hs.x, hs.y),
-                vec2.init(-hs.x, hs.y),
-            };
-
-            self.renderer2D.addLine(points[0], points[1], Color.white);
-            self.renderer2D.addLine(points[1], points[2], Color.white);
-            self.renderer2D.addLine(points[2], points[3], Color.white);
-            self.renderer2D.addLine(points[3], points[0], Color.white);
-        }
 
         const brick_size = 100;
 
@@ -153,10 +182,10 @@ pub const WorldRenderer = struct {
             vec2.init(-hs.x, -hs.y),
         };
 
-        self.renderer2D.addQuadRepeatingP(left_quad, 0.05, self.mat_brick);
-        self.renderer2D.addQuadRepeatingP(right_quad, 0.05, self.mat_brick);
-        self.renderer2D.addQuadRepeatingP(top_quad, 0.05, self.mat_brick);
-        self.renderer2D.addQuadRepeatingP(bottom_quad, 0.05, self.mat_brick);
+        self.renderer2D.addQuadRepeatingP(left_quad, Layers.Outer_Bounds, 0.05, self.mat_brick);
+        self.renderer2D.addQuadRepeatingP(right_quad, Layers.Outer_Bounds, 0.05, self.mat_brick);
+        self.renderer2D.addQuadRepeatingP(top_quad, Layers.Outer_Bounds, 0.05, self.mat_brick);
+        self.renderer2D.addQuadRepeatingP(bottom_quad, Layers.Outer_Bounds, 0.05, self.mat_brick);
     }
 
     fn renderGroundSegment(self: *Self, ground_segment: *const GroundSegment) void {
@@ -220,7 +249,12 @@ pub const WorldRenderer = struct {
             );
 
             // TODO: order ?
-            self.renderer2D.addTrianglePU([3]vec2{ p1_world, p2_world, p3_world }, [3]vec2{ p1_uv, p2_uv, p3_uv }, self.mat_wood);
+            self.renderer2D.addTrianglePU(
+                [3]vec2{ p1_world, p2_world, p3_world },
+                [3]vec2{ p1_uv, p2_uv, p3_uv },
+                Layers.Ground,
+                self.mat_wood,
+            );
         }
     }
 
@@ -243,7 +277,7 @@ pub const WorldRenderer = struct {
                 vehicle.transformLocalToWorld(points_local[3]),
             };
 
-            self.renderer2D.addQuadP(points_world, self.mat_cardboard);
+            self.renderer2D.addQuadP(points_world, Layers.Vehicle_Block, self.mat_cardboard);
         }
 
         for (vehicle.devices.items) |*device| {
@@ -274,10 +308,10 @@ pub const WorldRenderer = struct {
                         knob_positions_world[knob_index] = knob_world;
                     }
 
-                    self.renderer2D.addSolidCircle(center_world, radius, Color.black, self.mat_default);
-                    self.renderer2D.addSolidCircle(center_world, radius * 0.9, Color.gray4, self.mat_default);
+                    self.renderer2D.addSolidCircle(center_world, radius, Layers.Vehicle_Device, Color.black, self.mat_default);
+                    self.renderer2D.addSolidCircle(center_world, radius * 0.9, Layers.Vehicle_Device + 1, Color.gray4, self.mat_default);
                     for (knob_positions_world) |p| {
-                        self.renderer2D.addSolidCircle(p, radius * 0.1, Color.white, self.mat_default);
+                        self.renderer2D.addSolidCircle(p, radius * 0.1, Layers.Vehicle_Device + 2, Color.white, self.mat_default);
                     }
                 },
                 .Thruster => {
@@ -299,7 +333,7 @@ pub const WorldRenderer = struct {
                         vehicle.transformLocalToWorld(points_local[3]),
                     };
 
-                    self.renderer2D.addQuadPC(points_world, Color.gray4, self.mat_default);
+                    self.renderer2D.addQuadPC(points_world, Layers.Vehicle_Device, Color.gray4, self.mat_default);
 
                     // TODO thrust/exhaust
                 },
@@ -337,7 +371,7 @@ pub const WorldRenderer = struct {
 
         switch (item.def.shape) {
             .Circle => |radius| {
-                self.renderer2D.addSolidCircle(t.pos, radius, color, self.mat_default);
+                self.renderer2D.addSolidCircle(t.pos, radius, Layers.Items, color, self.mat_default);
             },
             .Rect => |size| {
                 const hs = size.scale(0.5);
@@ -355,8 +389,8 @@ pub const WorldRenderer = struct {
                     t.transformLocalToWorld(points_local[3]),
                 };
                 // ccw
-                self.renderer2D.addTrianglePC([3]vec2{ points_world[0], points_world[1], points_world[2] }, color, self.mat_default);
-                self.renderer2D.addTrianglePC([3]vec2{ points_world[0], points_world[2], points_world[3] }, color, self.mat_default);
+                self.renderer2D.addTrianglePC([3]vec2{ points_world[0], points_world[1], points_world[2] }, Layers.Items, color, self.mat_default);
+                self.renderer2D.addTrianglePC([3]vec2{ points_world[0], points_world[2], points_world[3] }, Layers.Items, color, self.mat_default);
             },
         }
     }
@@ -404,14 +438,14 @@ pub const WorldRenderer = struct {
         const sk_fwd_leg1_world = t.transformLocalToWorld(sk_fwd_leg1);
         const sk_fwd_leg2_world = t.transformLocalToWorld(sk_fwd_leg2);
 
-        self.renderer2D.addLine(sk_aft_world, sk_fwd_world, Color.white);
-        self.renderer2D.addLine(sk_aft_world, sk_tail_world, Color.white);
-        self.renderer2D.addLine(sk_fwd_world, sk_head_world, Color.white);
+        self.renderer2D.addLine(sk_aft_world, sk_fwd_world, Layers.Player, Color.white);
+        self.renderer2D.addLine(sk_aft_world, sk_tail_world, Layers.Player, Color.white);
+        self.renderer2D.addLine(sk_fwd_world, sk_head_world, Layers.Player, Color.white);
 
-        self.renderer2D.addLine(sk_aft_world, sk_aft_leg1_world, Color.white);
-        self.renderer2D.addLine(sk_aft_world, sk_aft_leg2_world, Color.white);
-        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg1_world, Color.white);
-        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg2_world, Color.white);
+        self.renderer2D.addLine(sk_aft_world, sk_aft_leg1_world, Layers.Player, Color.white);
+        self.renderer2D.addLine(sk_aft_world, sk_aft_leg2_world, Layers.Player, Color.white);
+        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg1_world, Layers.Player, Color.white);
+        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg2_world, Layers.Player, Color.white);
 
         // ------------
 
@@ -459,19 +493,19 @@ pub const WorldRenderer = struct {
             const p2_left = player.hand_end.add(hand_left.scale(0.05));
             const p2_right = player.hand_end.add(hand_left.scale(0.05).neg());
 
-            self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, hand_color1, self.mat_default);
-            self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, hand_color1, self.mat_default);
-            self.renderer2D.addSolidCircle(player.hand_end, 0.075, hand_color2, self.mat_default);
+            self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, Layers.Player, hand_color1, self.mat_default);
+            self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, Layers.Player, hand_color1, self.mat_default);
+            self.renderer2D.addSolidCircle(player.hand_end, 0.075, Layers.Player, hand_color2, self.mat_default);
         }
 
         if (player.show_hint) {
-            self.renderer2D.addText(player.hint_position, Color.white, "{s}", .{player.hint_text.?});
+            self.renderer2D.addText(player.hint_position, Layers.Overlay, Color.white, "{s}", .{player.hint_text.?});
         }
 
         {
             const p1 = t.pos.add(vec2.init(0, 2));
             const p2 = p1.add(vec2.init(1, 0));
-            self.renderer2D.addLine(p1, p2, Color.white);
+            self.renderer2D.addLine(p1, p2, Layers.Player, Color.white);
         }
     }
 
@@ -487,10 +521,10 @@ pub const WorldRenderer = struct {
     }
 
     fn renderStartFinish(self: *Self, world: *const World) void {
-        self.renderer2D.addCircle(world.settings.start_position, 1.0, Color.white);
-        self.renderer2D.addCircle(world.settings.finish_position, 1.0, Color.white);
+        self.renderer2D.addCircle(world.settings.start_position, 1.0, Layers.Overlay, Color.white);
+        self.renderer2D.addCircle(world.settings.finish_position, 1.0, Layers.Overlay, Color.white);
 
-        self.renderer2D.addText(world.settings.start_position, Color.white, "start", .{});
-        self.renderer2D.addText(world.settings.finish_position, Color.white, "finish", .{});
+        self.renderer2D.addText(world.settings.start_position, Layers.Overlay, Color.white, "start", .{});
+        self.renderer2D.addText(world.settings.finish_position, Layers.Overlay, Color.white, "finish", .{});
     }
 };

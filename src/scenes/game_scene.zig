@@ -50,14 +50,6 @@ pub fn getScene() engine.SceneDescriptor {
 //
 //
 //
-// BIG TODO 1: Materials
-//
-// BIG TODO 2: layers, z-coordinates
-//
-// BIG TODO 3: generic datastructures for vertex buffers?
-//
-//
-//
 // - generic datastructures:
 //   - graph + findPartitions
 //   - refs / versioned-index
