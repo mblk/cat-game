@@ -267,4 +267,19 @@ pub const Color = struct {
             .a = a,
         };
     }
+
+    pub fn initFloat(r: f32, g: f32, b: f32, a: f32) Color {
+        return Color{
+            .r = floatToByte(r),
+            .g = floatToByte(g),
+            .b = floatToByte(b),
+            .a = floatToByte(a),
+        };
+    }
+
+    fn floatToByte(v: f32) u8 {
+        const a: f32 = std.math.clamp(v * 255.0, 0.0, 255.0);
+        const b: u8 = @intFromFloat(a);
+        return b;
+    }
 };

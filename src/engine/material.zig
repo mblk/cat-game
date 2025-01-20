@@ -31,6 +31,20 @@ pub const MaterialDefs = struct {
         });
 
         try materials.append(MaterialDef{
+            .name = "playground",
+            .vs = "playground.vs",
+            .fs = "playground.fs",
+            .textures = &[_][]const u8{},
+        });
+
+        try materials.append(MaterialDef{
+            .name = "face1",
+            .vs = "face1.vs",
+            .fs = "face1.fs",
+            .textures = &[_][]const u8{},
+        });
+
+        try materials.append(MaterialDef{
             .name = "background",
             .vs = "textured.vs",
             .fs = "textured.fs",

@@ -40,6 +40,8 @@ pub const WorldRenderer = struct {
     mat_wood: engine.MaterialRef,
     mat_cardboard: engine.MaterialRef,
 
+    mat_face: engine.MaterialRef,
+
     const Layers = struct {
         const _base = Renderer2D.Layers.World;
 
@@ -95,6 +97,8 @@ pub const WorldRenderer = struct {
             .mat_brick = renderer2D.getMaterial("brick"),
             .mat_wood = renderer2D.getMaterial("wood"),
             .mat_cardboard = renderer2D.getMaterial("cardboard"),
+
+            .mat_face = renderer2D.getMaterial("face1"),
         };
     }
 
@@ -446,6 +450,16 @@ pub const WorldRenderer = struct {
         self.renderer2D.addLine(sk_aft_world, sk_aft_leg2_world, Layers.Player, Color.white);
         self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg1_world, Layers.Player, Color.white);
         self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg2_world, Layers.Player, Color.white);
+
+        const half_head_size = 0.25;
+        const head_points = [4]vec2{
+            sk_head_world.add(vec2.init(-half_head_size, -half_head_size)),
+            sk_head_world.add(vec2.init(half_head_size, -half_head_size)),
+            sk_head_world.add(vec2.init(half_head_size, half_head_size)),
+            sk_head_world.add(vec2.init(-half_head_size, half_head_size)),
+        };
+
+        self.renderer2D.addQuadP(head_points, Layers.Player, self.mat_face);
 
         // ------------
 

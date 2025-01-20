@@ -20,6 +20,7 @@ const TestScene = @import("scenes/test_scene.zig");
 const Renderer2DTestScene = @import("scenes/renderer_2d_test_scene.zig");
 const GameScene = @import("scenes/game_scene.zig");
 const LevelSelectScene = @import("scenes/level_select_scene.zig");
+const ShaderToyScene = @import("scenes/shader_toy_scene.zig");
 
 pub fn main() !void {
     std.log.info("hello!", .{});
@@ -137,10 +138,13 @@ pub fn main() !void {
     try scene_manager.registerScene(Renderer2DTestScene.getScene());
     try scene_manager.registerScene(GameScene.getScene());
     try scene_manager.registerScene(LevelSelectScene.getScene());
+    try scene_manager.registerScene(ShaderToyScene.getScene());
 
     //scene_manager.switchScene(.Menu);
 
     //scene_manager.switchScene(.Renderer2DTest);
+
+    //scene_manager.switchScene(.ShaderToy);
 
     scene_manager.switchScene(.{
         .Game = .{

@@ -67,6 +67,10 @@ const MenuScene = struct {
                 context.scene_commands.new_scene = .LevelSelect;
             }
 
+            if (zgui.button("Shader toy", .{ .w = button_w, .h = button_h })) {
+                context.scene_commands.new_scene = .ShaderToy;
+            }
+
             if (zgui.button("Load test scene 1", .{ .w = button_w, .h = button_h })) {
                 context.scene_commands.new_scene = .Renderer2DTest;
             }

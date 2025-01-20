@@ -24,6 +24,8 @@ const Renderer2DTestScene = struct {
     renderer: engine.Renderer2D,
 
     mat_default: engine.MaterialRef,
+    mat_playground: engine.MaterialRef,
+
     mat_textured: engine.MaterialRef,
     mat_wood: engine.MaterialRef,
 
@@ -35,6 +37,8 @@ const Renderer2DTestScene = struct {
         try self.renderer.init(context.allocator, context.content_manager);
 
         self.mat_default = self.renderer.materials.getRefByName("default");
+        self.mat_playground = self.renderer.materials.getRefByName("playground");
+
         self.mat_textured = self.renderer.materials.getRefByName("background");
         self.mat_wood = self.renderer.materials.getRefByName("wood");
 
@@ -68,7 +72,11 @@ const Renderer2DTestScene = struct {
         if (context.input_state.getKeyState(.down)) self.camera.changeOffset(vec2.init(0.0, -100.0 * context.dt));
 
         if (context.input_state.consumeKeyDownEvent(.escape)) {
-            context.scene_commands.new_scene = .Menu;
+            if (context.input_state.getKeyState(.left_shift)) {
+                context.scene_commands.new_scene = .Menu;
+            } else {
+                context.scene_commands.exit = true;
+            }
         }
     }
 
@@ -205,26 +213,10 @@ const Renderer2DTestScene = struct {
                 Color.white,
                 self.mat_wood,
             );
+
+            self.renderer.addText(vec2.init(0, 0), 0, Color.red, "Hello !", .{});
+            self.renderer.addText(vec2.init(0, -10), 0, Color.green, "World !", .{});
         }
-
-        if (false) {
-            self.renderer.addQuadP([_]vec2{
-                vec2.init(0, 0),
-                vec2.init(50, 0),
-                vec2.init(50, 50),
-                vec2.init(0, 50),
-            }, 0, self.mat_wood);
-
-            self.renderer.addQuadRepeatingP([_]vec2{
-                vec2.init(0, -50),
-                vec2.init(150, -50),
-                vec2.init(150, 0),
-                vec2.init(0, 0),
-            }, 0, 1.0 / 50.0, self.mat_wood);
-        }
-
-        self.renderer.addText(vec2.init(0, 0), 0, Color.red, "Hello !", .{});
-        self.renderer.addText(vec2.init(0, -10), 0, Color.green, "World !", .{});
 
         self.renderer.render(&self.camera, context.dt);
     }

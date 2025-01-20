@@ -393,6 +393,40 @@ pub const Renderer2D = struct {
         buffer.addVertex(.{ .position = [3]f32{ p_top_left.x, p_top_left.y, z }, .tex_coord = uv_top_left });
     }
 
+    pub fn addQuadPCU(
+        self: *Self,
+        points: [4]vec2,
+        color: Color,
+        uv: [4]vec2,
+        layer: i32,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
+        const buffer = self.getBufferForMaterial(material);
+
+        // Note: using ccw because that's what box2d uses
+        const p_bottom_left = points[0];
+        const p_bottom_right = points[1];
+        const p_top_right = points[2];
+        const p_top_left = points[3];
+
+        const uv_bottom_left = uv[0];
+        const uv_bottom_right = uv[1];
+        const uv_top_right = uv[2];
+        const uv_top_left = uv[3];
+
+        // 1
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .color = color, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_right.x, p_bottom_right.y, z }, .color = color, .tex_coord = uv_bottom_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .color = color, .tex_coord = uv_top_right });
+
+        // 2
+        buffer.addVertex(.{ .position = [3]f32{ p_bottom_left.x, p_bottom_left.y, z }, .color = color, .tex_coord = uv_bottom_left });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_right.x, p_top_right.y, z }, .color = color, .tex_coord = uv_top_right });
+        buffer.addVertex(.{ .position = [3]f32{ p_top_left.x, p_top_left.y, z }, .color = color, .tex_coord = uv_top_left });
+    }
+
     pub fn addQuadRepeatingP(
         self: *Self,
         points: [4]vec2,
@@ -625,8 +659,6 @@ pub const Renderer2D = struct {
     }
 
     fn bindMaterial(self: *Self, mat: *const Material, camera: *const Camera) void {
-        _ = self;
-
         const model: zm.Mat = zm.identity();
         const view = camera.view;
         const projection = camera.projection;
@@ -636,6 +668,8 @@ pub const Renderer2D = struct {
         mat.shader.setMat4("uModel", model);
         mat.shader.setMat4("uView", view);
         mat.shader.setMat4("uProjection", projection);
+
+        mat.shader.trySetFloat("uTime", self.time); // don't report error
 
         if (mat.textures.len > 0) {
             // bind texture(s)

@@ -92,6 +92,8 @@ pub const SceneId = enum {
     LevelSelect,
     Game,
 
+    ShaderToy,
+
     Renderer2DTest,
     TestScene1,
     TestScene2,
@@ -105,6 +107,8 @@ pub const SceneArgs = union(SceneId) {
         level_name: ?[]const u8,
         level_name_alloc: ?std.mem.Allocator, // level_name must be freed by target-scene if this is set
     },
+
+    ShaderToy: void,
 
     Renderer2DTest: void,
     TestScene1: void,
@@ -125,7 +129,7 @@ pub const SceneManager = struct {
 
     // temp state/settings
     render_wireframe: bool = false,
-    render_clear_color: [3]f32 = [_]f32{ 0, 0, 0 },
+    render_clear_color: [3]f32 = [_]f32{ 0.4, 0.2, 0.2 },
 
     pub fn create(
         allocator: std.mem.Allocator,
