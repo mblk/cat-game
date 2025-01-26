@@ -5,7 +5,7 @@ const zearcut = @import("zearcut");
 const engine = @import("../../engine/engine.zig");
 const vec2 = engine.vec2;
 const rot2 = engine.rot2;
-const Transform = engine.Transform2;
+const Transform2 = engine.Transform2;
 const Color = engine.Color;
 
 const Renderer2D = engine.Renderer2D;
@@ -28,8 +28,22 @@ const Item = item_ns.Item;
 const player_ns = @import("../player.zig");
 const Player = player_ns.Player;
 
+// TODO remove
+const zbox = @import("zbox");
+const b2 = zbox.API;
+// TODO remove
+
+pub const WorldRendererSettings = struct {
+    show_player_skeleton: bool = true,
+
+    tail_angle: f32 = std.math.degreesToRadians(30),
+    head_angle: f32 = std.math.degreesToRadians(30),
+};
+
 pub const WorldRenderer = struct {
     const Self = @This();
+
+    settings: WorldRendererSettings = .{},
 
     renderer2D: *Renderer2D,
 
@@ -53,6 +67,8 @@ pub const WorldRenderer = struct {
         const Items = _base + 50;
         const Player = _base + 60;
         const Overlay = _base + 70;
+
+        const Debug = Renderer2D.Layers.Debug;
     };
 
     // const LLL = enum {
@@ -119,6 +135,10 @@ pub const WorldRenderer = struct {
             self.renderGroundSegment(ground_segment);
         }
 
+        for (world.test_platforms.items) |joint_id| {
+            self.renderTestPlatform(joint_id);
+        }
+
         // vehicles
         for (world.vehicles.items) |*vehicle| {
             if (!vehicle.alive) continue;
@@ -136,6 +156,25 @@ pub const WorldRenderer = struct {
             self.renderPlayer(player);
             self.renderScore(player, camera);
         }
+    }
+
+    fn renderTestPlatform(self: *Self, joint_id: b2.b2JointId) void {
+        //
+        const platform_body_id = b2.b2Joint_GetBodyB(joint_id);
+
+        const t = Transform2.from_b2(b2.b2Body_GetTransform(platform_body_id));
+
+        const hw = 5.0;
+        const hh = 1.0;
+
+        const p0 = t.transformLocalToWorld(vec2.init(-hw, -hh));
+        const p1 = t.transformLocalToWorld(vec2.init(hw, -hh));
+        const p2 = t.transformLocalToWorld(vec2.init(hw, hh));
+        const p3 = t.transformLocalToWorld(vec2.init(-hw, hh));
+
+        const points = [4]vec2{ p0, p1, p2, p3 };
+
+        self.renderer2D.addQuadPC(points, Layers.Ground + 1, Color.gray3, self.mat_default);
     }
 
     fn renderBackground(self: *Self, camera: *const Camera) void {
@@ -400,58 +439,75 @@ pub const WorldRenderer = struct {
     }
 
     fn renderPlayer(self: *Self, player: *const Player) void {
-        const t = player.getTransform();
+        const sk_t = player.sk_transform;
+        const def = player.def;
+
+        const body_color = Color.init(140, 140, 140, 255);
 
         // def
-        const spine_length: f32 = 0.5;
-        const neck_length: f32 = 0.25;
+        const neck_length: f32 = 0.2;
         const tail_length: f32 = 0.5;
-        const aft_leg_length: f32 = 0.5;
-        const fwd_leg_length: f32 = 0.5;
 
-        // poses:
-        // - sitting (possibly on slope)
-        // - standing (")
-        // - climbing on side (")
-        // - climbing on ceiling (")
-
+        // local
         const sk_center = vec2.init(0, 0);
 
-        const sk_head_angle: f32 = std.math.degreesToRadians(30); // 30deg up
-        const sk_tail_angle: f32 = std.math.degreesToRadians(45); // 45deg down
+        //const sk_head_angle: f32 = std.math.degreesToRadians(30); // 30deg up
+        //const sk_tail_angle: f32 = std.math.degreesToRadians(45); // 45deg down
+        //const sk_tail_angle: f32 = std.math.degreesToRadians(-45); // 45deg up
 
-        const sk_aft = sk_center.add(vec2.init(-spine_length * 0.5, 0));
-        const sk_fwd = sk_center.add(vec2.init(spine_length * 0.5, 0));
-        const sk_head = sk_fwd.add(vec2.init(neck_length, 0).rotate(sk_head_angle)); // rotate
-        const sk_tail = sk_aft.add(vec2.init(-tail_length, 0).rotate(sk_tail_angle)); // rotate
+        const sk_aft = def.sk_aft_pivot; // sk_center.add(vec2.init(-spine_length * 0.5, 0));
+        const sk_fwd = def.sk_fwd_pivot; // sk_center.add(vec2.init(spine_length * 0.5, 0));
 
-        const sk_aft_leg1 = sk_aft.add(vec2.init(0, -aft_leg_length));
-        const sk_aft_leg2 = sk_aft.add(vec2.init(0, -aft_leg_length));
-        const sk_fwd_leg1 = sk_fwd.add(vec2.init(0, -fwd_leg_length));
-        const sk_fwd_leg2 = sk_fwd.add(vec2.init(0, -fwd_leg_length));
+        const sk_tail = sk_aft.add(vec2.init(-tail_length, 0).rotate(self.settings.tail_angle)); // rotate
+
+        const body_offset_x = 0.1;
+        const body_offset_top = 0.05;
+        const body_offset_bottom = 0.2;
+
+        const body_p0 = sk_aft.add(vec2.init(-body_offset_x, -body_offset_bottom)); // lower left
+        const body_p1 = sk_fwd.add(vec2.init(body_offset_x, -body_offset_bottom)); // lower right
+        const body_p2 = sk_fwd.add(vec2.init(body_offset_x, body_offset_top)); // upper right
+        const body_p3 = sk_aft.add(vec2.init(-body_offset_x, body_offset_top)); // upper left
+
+        const sk_neck_base = def.sk_fwd_pivot.add(vec2.init(0, (body_offset_top - body_offset_bottom) * 0.5));
+        const sk_neck_head = sk_neck_base.add(vec2.init(neck_length, 0).rotate(self.settings.head_angle));
+        const sk_head = sk_neck_head;
+
+        // world
+        const sk_center_world = sk_t.transformLocalToWorld(sk_center);
+
+        const sk_aft_world = sk_t.transformLocalToWorld(sk_aft);
+        const sk_fwd_world = sk_t.transformLocalToWorld(sk_fwd);
+
+        const sk_tail_world = sk_t.transformLocalToWorld(sk_tail);
+
+        const sk_neck_base_world = sk_t.transformLocalToWorld(sk_neck_base);
+        const sk_neck_head_world = sk_t.transformLocalToWorld(sk_neck_head);
+        const sk_head_world = sk_t.transformLocalToWorld(sk_head);
+
+        const body_p0_world = sk_t.transformLocalToWorld(body_p0);
+        const body_p1_world = sk_t.transformLocalToWorld(body_p1);
+        const body_p2_world = sk_t.transformLocalToWorld(body_p2);
+        const body_p3_world = sk_t.transformLocalToWorld(body_p3);
 
         // ------------
 
-        const sk_aft_world = t.transformLocalToWorld(sk_aft);
-        const sk_fwd_world = t.transformLocalToWorld(sk_fwd);
-        const sk_head_world = t.transformLocalToWorld(sk_head);
-        const sk_tail_world = t.transformLocalToWorld(sk_tail);
+        // skeleton lines
+        if (self.settings.show_player_skeleton) {
+            // physics shape
+            self.renderer2D.addCircle(sk_center_world, player.def.shape_radius, Layers.Debug, Color.white);
 
-        const sk_aft_leg1_world = t.transformLocalToWorld(sk_aft_leg1);
-        const sk_aft_leg2_world = t.transformLocalToWorld(sk_aft_leg2);
-        const sk_fwd_leg1_world = t.transformLocalToWorld(sk_fwd_leg1);
-        const sk_fwd_leg2_world = t.transformLocalToWorld(sk_fwd_leg2);
+            self.renderer2D.addLine(sk_aft_world, sk_fwd_world, Layers.Debug, Color.white);
+            self.renderer2D.addLine(sk_aft_world, sk_tail_world, Layers.Debug, Color.white);
+            //self.renderer2D.addLine(sk_fwd_world, sk_head_world, Layers.Debug, Color.white);
+        }
 
-        self.renderer2D.addLine(sk_aft_world, sk_fwd_world, Layers.Player, Color.white);
-        self.renderer2D.addLine(sk_aft_world, sk_tail_world, Layers.Player, Color.white);
-        self.renderer2D.addLine(sk_fwd_world, sk_head_world, Layers.Player, Color.white);
+        // main body
+        self.renderer2D.addQuadPC([4]vec2{ body_p0_world, body_p1_world, body_p2_world, body_p3_world }, Layers.Player, body_color, self.mat_default);
 
-        self.renderer2D.addLine(sk_aft_world, sk_aft_leg1_world, Layers.Player, Color.white);
-        self.renderer2D.addLine(sk_aft_world, sk_aft_leg2_world, Layers.Player, Color.white);
-        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg1_world, Layers.Player, Color.white);
-        self.renderer2D.addLine(sk_fwd_world, sk_fwd_leg2_world, Layers.Player, Color.white);
+        self.renderNeck(sk_neck_base_world, sk_neck_head_world, Layers.Player);
 
-        const half_head_size = 0.25;
+        const half_head_size = 0.20;
         const head_points = [4]vec2{
             sk_head_world.add(vec2.init(-half_head_size, -half_head_size)),
             sk_head_world.add(vec2.init(half_head_size, -half_head_size)),
@@ -459,40 +515,26 @@ pub const WorldRenderer = struct {
             sk_head_world.add(vec2.init(-half_head_size, half_head_size)),
         };
 
-        self.renderer2D.addQuadP(head_points, Layers.Player, self.mat_face);
+        //_ = head_points;
+
+        self.renderer2D.addQuadP(head_points, Layers.Player + 4, self.mat_face);
+
+        // self.renderer2D.addLine(head_points[0], head_points[1], Layers.Debug, Color.white);
+        // self.renderer2D.addLine(head_points[1], head_points[2], Layers.Debug, Color.white);
+        // self.renderer2D.addLine(head_points[2], head_points[3], Layers.Debug, Color.white);
+        // self.renderer2D.addLine(head_points[3], head_points[0], Layers.Debug, Color.white);
 
         // ------------
 
-        //const fur_color = Color.init(51, 51, 51, 255);
+        // for (player.legs) |leg| {
+        //     self.renderLeg(leg.pivot_pos_world, leg.paw_pos_world, Layers.Player);
+        // }
+        self.renderLeg(player.legs[0].pivot_pos_world, player.legs[0].paw_pos_world, Layers.Player - 3);
+        self.renderLeg(player.legs[1].pivot_pos_world, player.legs[1].paw_pos_world, Layers.Player + 3);
+        self.renderLeg(player.legs[2].pivot_pos_world, player.legs[2].paw_pos_world, Layers.Player - 3);
+        self.renderLeg(player.legs[3].pivot_pos_world, player.legs[3].paw_pos_world, Layers.Player + 3);
 
-        // const front_circle_local = vec2.init(0.25 / 2.0, 0);
-        // const aft_circle_local = vec2.init(-0.25 / 2.0, 0);
-        // const head_circle_local = vec2.init(0.3 / 2.0, 0.3 / 2.0);
-
-        // const front_circle_world = t.transformLocalToWorld(front_circle_local);
-        // const aft_circle_world = t.transformLocalToWorld(aft_circle_local);
-        // const head_circle_world = t.transformLocalToWorld(head_circle_local);
-
-        // self.renderer2D.addSolidCircle(front_circle_world, 0.25 / 2.0, fur_color);
-        // self.renderer2D.addSolidCircle(aft_circle_world, 0.25 / 2.0, fur_color);
-        // self.renderer2D.addSolidCircle(head_circle_world, 0.20 / 2.0, fur_color);
-
-        // const hs = vec2.init(1.0, 1.0);
-        // const center_local = vec2.init(0, 0.4);
-        // const points_local = [4]vec2{
-        //     center_local.add(vec2.init(-hs.x, -hs.y)),
-        //     center_local.add(vec2.init(hs.x, -hs.y)),
-        //     center_local.add(vec2.init(hs.x, hs.y)),
-        //     center_local.add(vec2.init(-hs.x, hs.y)),
-        // };
-        // const points_world = [4]vec2{
-        //     t.transformLocalToWorld(points_local[0]),
-        //     t.transformLocalToWorld(points_local[1]),
-        //     t.transformLocalToWorld(points_local[2]),
-        //     t.transformLocalToWorld(points_local[3]),
-        // };
-
-        // self.renderer2D.addTexturedQuad(points_world, Color.white, self.tex_cat1);
+        // ------------
 
         if (player.show_hand) {
             const hand_color1 = Color.init(63, 63, 63, 255);
@@ -516,11 +558,57 @@ pub const WorldRenderer = struct {
             self.renderer2D.addText(player.hint_position, Layers.Overlay, Color.white, "{s}", .{player.hint_text.?});
         }
 
+        // 1m line for reference
         {
-            const p1 = t.pos.add(vec2.init(0, 2));
+            const p1 = sk_t.pos.add(vec2.init(0, 2));
             const p2 = p1.add(vec2.init(1, 0));
             self.renderer2D.addLine(p1, p2, Layers.Player, Color.white);
         }
+    }
+
+    fn renderNeck(self: *Self, pivot: vec2, head: vec2, layer: i32) void {
+        const color = Color.init(140, 140, 140, 255);
+
+        if (self.settings.show_player_skeleton) {
+            self.renderer2D.addLine(pivot, head, Layers.Debug, Color.white);
+        }
+
+        const dir = head.sub(pivot).normalize();
+        const left = dir.turn90ccw();
+
+        const width_base = 0.25;
+        const width_head = 0.2;
+
+        const p1_left = pivot.add(left.scale(width_base * 0.5));
+        const p1_right = pivot.add(left.scale(width_base * 0.5).neg());
+
+        const p2_left = head.add(left.scale(width_head * 0.5));
+        const p2_right = head.add(left.scale(width_head * 0.5).neg());
+
+        self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, layer, color, self.mat_default);
+        self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, layer, color, self.mat_default);
+    }
+
+    fn renderLeg(self: *Self, pivot: vec2, paw: vec2, layer: i32) void {
+        const color = Color.init(160, 160, 160, 255);
+        const color2 = Color.init(100, 100, 100, 255);
+
+        if (self.settings.show_player_skeleton) {
+            self.renderer2D.addLine(pivot, paw, Layers.Debug, Color.white);
+        }
+
+        const dir = paw.sub(pivot).normalize();
+        const left = dir.turn90ccw();
+
+        const p1_left = pivot.add(left.scale(0.035));
+        const p1_right = pivot.add(left.scale(0.035).neg());
+
+        const p2_left = paw.add(left.scale(0.035));
+        const p2_right = paw.add(left.scale(0.035).neg());
+
+        self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, layer, color, self.mat_default);
+        self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, layer, color, self.mat_default);
+        self.renderer2D.addSolidCircle(paw, 0.04, layer + 1, color2, self.mat_default);
     }
 
     fn renderScore(self: *Self, player: *const Player, camera: *const Camera) void {

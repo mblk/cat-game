@@ -401,6 +401,29 @@ const GameScene = struct {
         //
         self.victory_dialog.drawUi();
         self.pause_dialog.drawUi();
+
+        //
+        zgui.setNextWindowPos(.{ .x = 1600.0, .y = 400.0, .cond = .appearing });
+        zgui.setNextWindowSize(.{ .w = 200, .h = 200 });
+
+        if (zgui.begin("GameScene", .{})) {
+            zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
+
+            if (zgui.collapsingHeader("physics", .{})) {
+                self.zbox_renderer.drawUi();
+            }
+
+            if (zgui.collapsingHeader("renderer", .{})) {
+                const settings: *game.WorldRendererSettings = &self.world_renderer.settings;
+
+                //
+                _ = zgui.checkbox("player skeleton", .{ .v = &settings.show_player_skeleton });
+
+                _ = zgui.sliderAngle("tail", .{ .vrad = &settings.tail_angle });
+                _ = zgui.sliderAngle("head", .{ .vrad = &settings.head_angle });
+            }
+        }
+        zgui.end();
     }
 
     fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {
@@ -480,22 +503,6 @@ const GameScene = struct {
         self.tool_manager.drawUi(.{
             .input = context.input_state,
         });
-
-        zgui.setNextWindowPos(.{ .x = 1600.0, .y = 400.0, .cond = .appearing });
-        //zgui.setNextWindowSize(.{ .w = 400, .h = 400 });
-
-        if (zgui.begin("Editor", .{})) {
-            zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
-
-            //
-            // physics
-            //
-
-            if (zgui.collapsingHeader("physics", .{})) {
-                self.zbox_renderer.drawUi();
-            }
-        }
-        zgui.end();
     }
 
     fn toggleMasterMode(self: *Self) void {

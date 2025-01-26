@@ -38,6 +38,7 @@ pub const ItemEditTool = @import("tools/item_edit_tool.zig").ItemEditTool;
 pub const WorldSettingsTool = @import("tools/world_settings_tool.zig").WorldSettingsTool;
 
 pub const WorldRenderer = @import("renderer/world_renderer.zig").WorldRenderer;
+pub const WorldRendererSettings = @import("renderer/world_renderer.zig").WorldRendererSettings;
 
 pub const WorldImportDialog = @import("ui/editor/world_import_dialog.zig").WorldImportDialog;
 pub const WorldExportDialog = @import("ui/editor/world_export_dialog.zig").WorldExportDialog;

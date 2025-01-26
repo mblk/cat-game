@@ -6,6 +6,8 @@ const Transform2 = engine.Transform2;
 
 const b2 = @import("zbox").API;
 
+const physics = @import("physics.zig");
+
 pub const ItemType = enum {
     Food,
     Debris,
@@ -125,6 +127,7 @@ pub const Item = struct {
         var shape_def = b2.b2DefaultShapeDef();
         shape_def.density = 1.0;
         shape_def.friction = 0.3;
+        shape_def.filter = physics.Filters.getItemFilter();
 
         switch (def.shape) {
             .Circle => |radius| {

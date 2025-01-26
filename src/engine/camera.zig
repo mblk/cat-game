@@ -34,7 +34,8 @@ pub const Camera = struct {
 
         const zoom: f32 = std.math.pow(f32, 1.2, @as(f32, @floatFromInt(self.zoom_level)));
 
-        const width = 100.0 * zoom; // target x-visibility at 100% zoom
+        //const width = 100.0 * zoom; // target x-visibility at 100% zoom
+        const width = 25.0 * zoom; // target x-visibility at 100% zoom
         const height = width / window_ratio;
 
         const near = 0.001;

@@ -13,7 +13,10 @@ const MaterialRef = @import("material.zig").MaterialRef;
 
 pub const ZBoxRenderer = struct {
     const Self = @This();
-    const Layer = Renderer2D.Layers.ZBox;
+    //const Layer = Renderer2D.Layers.ZBox;
+
+    const FillLayer = Renderer2D.Layers.ZBox;
+    const LineLayer = Renderer2D.Layers.ZBox + 1;
 
     b2_debug_draw: b2.b2DebugDraw,
     renderer: *Renderer2D,
@@ -84,7 +87,7 @@ pub const ZBoxRenderer = struct {
             const p1 = convertVec2(vertices[i]);
             const p2 = convertVec2(vertices[(i + 1) % count]);
 
-            renderer.addLine(p1, p2, Layer, color);
+            renderer.addLine(p1, p2, LineLayer, color);
         }
     }
 
@@ -124,7 +127,7 @@ pub const ZBoxRenderer = struct {
             const index1: usize = i;
             const index2: usize = (i + 1) % count;
 
-            renderer.addLine(abs_points[index1], abs_points[index2], Layer, color);
+            renderer.addLine(abs_points[index1], abs_points[index2], LineLayer, color);
         }
 
         // 0 1 2 3 ..
@@ -136,7 +139,7 @@ pub const ZBoxRenderer = struct {
             const p1 = abs_points[i];
             const p2 = abs_points[i + 1];
 
-            renderer.addTrianglePC([3]vec2{ p0, p1, p2 }, Layer, fill_color, self.mat_default);
+            renderer.addTrianglePC([3]vec2{ p0, p1, p2 }, FillLayer, fill_color, self.mat_default);
         }
     }
 
@@ -151,7 +154,7 @@ pub const ZBoxRenderer = struct {
         const color = convertColor(b2color);
         const center = convertVec2(b2center);
 
-        renderer.addCircle(center, radius, Layer, color);
+        renderer.addCircle(center, radius, LineLayer, color);
     }
 
     // Draw a solid circle.
@@ -179,9 +182,9 @@ pub const ZBoxRenderer = struct {
         const right_vector = vec2.from_b2(b2.b2RotateVector(transform.q, vec2.init(1, 0).to_b2()));
         const right = center.add(right_vector.scale(radius));
 
-        renderer.addSolidCircle(center, radius, Layer, fill_color, self.mat_default);
-        renderer.addCircle(center, radius, Layer, color);
-        renderer.addLine(center, right, Layer, color);
+        renderer.addSolidCircle(center, radius, FillLayer, fill_color, self.mat_default);
+        renderer.addCircle(center, radius, LineLayer, color);
+        renderer.addLine(center, right, LineLayer, color);
     }
 
     // Draw a solid capsule.
@@ -208,7 +211,7 @@ pub const ZBoxRenderer = struct {
         const p1 = convertVec2(b2p1);
         const p2 = convertVec2(b2p2);
 
-        renderer.addLine(p1, p2, Layer, color);
+        renderer.addLine(p1, p2, LineLayer, color);
     }
 
     // Draw a transform. Choose your own length scale.
@@ -225,8 +228,8 @@ pub const ZBoxRenderer = struct {
         const p2 = vec2.from_b2(b2.b2MulAdd(transform.p, axis_scale, b2.b2Rot_GetXAxis(transform.q)));
         const p3 = vec2.from_b2(b2.b2MulAdd(transform.p, axis_scale, b2.b2Rot_GetYAxis(transform.q)));
 
-        renderer.addLine(p1, p2, Layer, Color.red);
-        renderer.addLine(p1, p3, Layer, Color.green);
+        renderer.addLine(p1, p2, LineLayer, Color.red);
+        renderer.addLine(p1, p3, LineLayer, Color.green);
     }
 
     // Draw a point.
@@ -240,7 +243,7 @@ pub const ZBoxRenderer = struct {
         const color = convertColor(b2color);
         const p = convertVec2(b2p);
 
-        renderer.addPointWithPixelSize(p, size, Layer, color);
+        renderer.addPointWithPixelSize(p, size, FillLayer, color);
     }
 
     // Draw a string.
@@ -254,7 +257,7 @@ pub const ZBoxRenderer = struct {
         const p = convertVec2(b2p);
         const s: []const u8 = std.mem.span(b2s); // convert c-string-pointer to slice
 
-        renderer.addText(p, Layer, Color.white, "{s}", .{s});
+        renderer.addText(p, LineLayer, Color.white, "{s}", .{s});
     }
 
     inline fn getSelfPtr(context: ?*anyopaque) *Self {

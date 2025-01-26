@@ -6,6 +6,8 @@ const vec2 = engine.vec2;
 const zbox = @import("zbox");
 const b2 = zbox.API;
 
+const physics = @import("physics.zig");
+
 pub const GroundSegment = struct {
     world_id: b2.b2WorldId,
     position: vec2,
@@ -97,6 +99,7 @@ pub const GroundSegment = struct {
         chain_def.isLoop = true;
         chain_def.points = points.ptr;
         chain_def.count = @intCast(num_points);
+        chain_def.filter = physics.Filters.getGroundFilter();
 
         _ = b2.b2CreateChain(self.body_id, &chain_def);
     }

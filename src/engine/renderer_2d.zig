@@ -50,6 +50,11 @@ const TextData = struct {
 pub const Renderer2D = struct {
     const Self = @This();
 
+    // TODO: make this so it is only declared in debug-builds?
+    // xxx
+    pub var Instance: *Renderer2D = undefined;
+    // xxx
+
     pub const Layers = struct {
         pub const Min = 0;
         pub const Max = 1000;
@@ -81,6 +86,7 @@ pub const Renderer2D = struct {
         allocator: std.mem.Allocator,
         content_manager: *ContentManager,
     ) !void {
+        Self.Instance = self;
 
         // TODO: move to contentmanager?
         // Load materials.

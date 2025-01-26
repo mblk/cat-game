@@ -8,6 +8,8 @@ const Transform2 = engine.Transform2;
 const zbox = @import("zbox");
 const b2 = zbox.API;
 
+const physics = @import("physics.zig");
+
 const refs = @import("refs.zig");
 const BlockRef = refs.BlockRef;
 const DeviceRef = refs.DeviceRef;
@@ -58,6 +60,7 @@ pub const Block = struct {
         var shape_def = b2.b2DefaultShapeDef();
         shape_def.density = 1.0;
         shape_def.friction = 0.3;
+        shape_def.filter = physics.Filters.getVehicleFilter();
 
         const shape_id = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
 
@@ -260,6 +263,7 @@ pub const WheelDevice = struct {
         var shape = b2.b2DefaultShapeDef();
         shape.density = 0.1;
         shape.friction = 0.9;
+        shape.filter = physics.Filters.getVehicleFilter();
 
         _ = b2.b2CreateCircleShape(body_id, &shape, &circle);
 
@@ -364,6 +368,7 @@ pub const ThrusterDevice = struct {
         var shape_def = b2.b2DefaultShapeDef();
         shape_def.density = 1.0;
         shape_def.friction = 0.3;
+        shape_def.filter = physics.Filters.getVehicleFilter();
 
         const shape_id = b2.b2CreatePolygonShape(parent_body_id, &shape_def, &box);
 

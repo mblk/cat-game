@@ -38,6 +38,8 @@ const BlockRef = refs.BlockRef;
 const DeviceRef = refs.DeviceRef;
 const ItemRef = refs.ItemRef;
 
+const physics = @import("physics.zig");
+
 pub const VehicleAndBlockRef = struct {
     vehicle: VehicleRef,
     block: BlockRef,
@@ -151,6 +153,9 @@ pub const World = struct {
     players: std.ArrayList(Player),
     items: std.ArrayList(Item),
 
+    test_platforms: std.ArrayList(b2.b2JointId),
+    platform_time: f32 = 0,
+
     pub fn init(
         self: *Self,
         allocator: std.mem.Allocator,
@@ -177,10 +182,64 @@ pub const World = struct {
             .vehicles = .init(allocator),
             .players = .init(allocator),
             .items = .init(allocator),
+
+            .test_platforms = .init(allocator),
         };
 
         self.updateOuterBounds();
         self.updateGravity();
+
+        self.createTestPlatform(vec2.init(0, -20));
+        self.createTestPlatform(vec2.init(15, -15));
+        self.createTestPlatform(vec2.init(30, -10));
+    }
+
+    fn createTestPlatform(self: *Self, pos: vec2) void {
+
+        // other body
+        var other_body_def = b2.b2DefaultBodyDef(); // static body
+        const other_body_id = b2.b2CreateBody(self.world_id, &other_body_def);
+
+        // platform body
+        var body_def = b2.b2DefaultBodyDef();
+        body_def.type = b2.b2_dynamicBody;
+        body_def.position = pos.to_b2();
+        body_def.fixedRotation = true;
+        const body_id = b2.b2CreateBody(self.world_id, &body_def);
+
+        // platform shape
+        const box = b2.b2MakeBox(5.0, 1.0);
+
+        var shape_def = b2.b2DefaultShapeDef();
+        shape_def.density = 1.0;
+        shape_def.friction = 0.3;
+        shape_def.filter = physics.Filters.getGroundFilter();
+
+        _ = b2.b2CreatePolygonShape(body_id, &shape_def, &box);
+
+        // joint
+        const axis = vec2.init(1, 0);
+        const pivot = pos;
+
+        var joint_def = b2.b2DefaultPrismaticJointDef();
+        joint_def.bodyIdA = other_body_id;
+        joint_def.bodyIdB = body_id;
+
+        joint_def.localAxisA = b2.b2Body_GetLocalVector(joint_def.bodyIdA, axis.to_b2());
+        joint_def.localAnchorA = b2.b2Body_GetLocalPoint(joint_def.bodyIdA, pivot.to_b2());
+        joint_def.localAnchorB = b2.b2Body_GetLocalPoint(joint_def.bodyIdB, pivot.to_b2());
+
+        joint_def.enableMotor = false;
+
+        joint_def.enableLimit = true;
+        joint_def.lowerTranslation = -10.0;
+        joint_def.upperTranslation = 10.0;
+
+        joint_def.enableSpring = false;
+
+        const joint_id = b2.b2CreatePrismaticJoint(self.world_id, &joint_def);
+
+        self.test_platforms.append(joint_id) catch unreachable;
     }
 
     fn createPhysicsWorld() b2.b2WorldId {
@@ -246,6 +305,7 @@ pub const World = struct {
             ground_segment.free();
         }
 
+        self.test_platforms.deinit();
         self.items.deinit();
         self.players.deinit();
         self.vehicles.deinit();
@@ -298,7 +358,7 @@ pub const World = struct {
         //
         // TODO whats the best order ?
         //
-        _ = dt;
+        //_ = dt;
 
         //
         // settings changed?
@@ -410,6 +470,29 @@ pub const World = struct {
 
             // TODO: fix center after vehicle has been changed
             // - but this might cause accumulating floating point errors?
+        }
+
+        //
+        // Drive test platforms
+        //
+
+        self.platform_time += dt;
+        if (self.platform_time > 5.0) {
+            self.platform_time = 0.0;
+        }
+
+        for (self.test_platforms.items) |joint_id| {
+            var speed: f32 = 10.0;
+            if (self.platform_time < 2.5) {
+                speed = -10.0;
+            }
+
+            b2.b2PrismaticJoint_EnableMotor(joint_id, true);
+            b2.b2PrismaticJoint_SetMotorSpeed(joint_id, speed);
+            b2.b2PrismaticJoint_SetMaxMotorForce(joint_id, 100.0);
+
+            const platform_body_id = b2.b2Joint_GetBodyB(joint_id);
+            b2.b2Body_SetAwake(platform_body_id, true);
         }
 
         //

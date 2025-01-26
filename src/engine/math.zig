@@ -65,7 +65,10 @@ pub const vec2 = packed struct {
     }
 
     pub fn normalize(self: vec2) vec2 {
-        return self.scale(1.0 / self.len());
+        const my_len = self.len();
+        std.debug.assert(my_len > 0.001);
+
+        return self.scale(1.0 / my_len);
     }
 
     pub fn dot(self: vec2, other: vec2) f32 {
@@ -119,6 +122,13 @@ pub const vec2 = packed struct {
         };
     }
 
+    pub fn lerp(a: vec2, b: vec2, t: f32) vec2 {
+        return vec2{
+            .x = std.math.lerp(a.x, b.x, t),
+            .y = std.math.lerp(a.y, b.y, t),
+        };
+    }
+
     pub fn format(self: vec2, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         //_ = options;
@@ -150,6 +160,18 @@ pub const rot2 = struct {
 
     sin: f32,
     cos: f32,
+
+    pub fn from_up_vector(up: vec2) rot2 {
+        const length_sq = up.x * up.x + up.y * up.y;
+        if (length_sq == 0) {
+            return rot2.identity;
+        }
+        const inv_length = 1.0 / std.math.sqrt(length_sq);
+        return rot2{
+            .sin = -up.x * inv_length,
+            .cos = up.y * inv_length,
+        };
+    }
 
     pub fn from_angle(angle: f32) rot2 {
         return rot2{
