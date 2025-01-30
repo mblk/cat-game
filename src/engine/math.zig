@@ -86,6 +86,10 @@ pub const vec2 = packed struct {
         return std.math.sqrt(self.x * self.x + self.y * self.y);
     }
 
+    pub fn dist(a: vec2, b: vec2) f32 {
+        return std.math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+    }
+
     pub fn turn90cw(self: vec2) vec2 {
         return vec2{
             .x = self.y,
@@ -100,8 +104,14 @@ pub const vec2 = packed struct {
         };
     }
 
-    pub fn dist(a: vec2, b: vec2) f32 {
-        return std.math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
+    pub fn rotate(self: vec2, a: f32) vec2 {
+        const sin = std.math.sin(a);
+        const cos = std.math.cos(a);
+
+        return vec2{
+            .x = cos * self.x - sin * self.y,
+            .y = sin * self.x + cos * self.y,
+        };
     }
 
     // -pi .. 0 .. pi
@@ -112,14 +122,11 @@ pub const vec2 = packed struct {
         return std.math.atan2(self.y, self.x);
     }
 
-    pub fn rotate(self: vec2, a: f32) vec2 {
-        const sin = std.math.sin(a);
-        const cos = std.math.cos(a);
-
-        return vec2{
-            .x = cos * self.x - sin * self.y,
-            .y = sin * self.x + cos * self.y,
-        };
+    pub fn angleBetween(a: vec2, b: vec2) f32 {
+        const an = a.normalize();
+        const bn = b.normalize();
+        const dotProduct = an.dot(bn);
+        return std.math.acos(std.math.clamp(dotProduct, -1, 1));
     }
 
     pub fn lerp(a: vec2, b: vec2, t: f32) vec2 {
@@ -256,7 +263,7 @@ pub const Transform2 = struct {
         //
         const v = world_position.sub(self.pos);
 
-        self.rot.rotateWorldToLocal(v);
+        return self.rot.rotateWorldToLocal(v);
 
         // float vx = p.x - t.p.x;
         // float vy = p.y - t.p.y;

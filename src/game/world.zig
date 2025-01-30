@@ -189,9 +189,9 @@ pub const World = struct {
         self.updateOuterBounds();
         self.updateGravity();
 
-        self.createTestPlatform(vec2.init(0, -20));
-        self.createTestPlatform(vec2.init(15, -15));
-        self.createTestPlatform(vec2.init(30, -10));
+        self.createTestPlatform(vec2.init(0, -25));
+        self.createTestPlatform(vec2.init(10, -22));
+        self.createTestPlatform(vec2.init(20, -19));
     }
 
     fn createTestPlatform(self: *Self, pos: vec2) void {

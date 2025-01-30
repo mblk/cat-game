@@ -248,6 +248,15 @@ const GameScene = struct {
     fn update(self_ptr: *anyopaque, context: *const engine.UpdateContext) void { // TODO figure out optimal order of things
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
+        // xxx
+        if (context.input_state.consumeKeyDownEvent(.F1)) {
+            self.sim_speed = .Paused;
+        }
+        if (context.input_state.consumeKeyDownEvent(.F2)) {
+            self.sim_speed = .{ .Running = 1.0 };
+        }
+        // xxx
+
         const is_paused = self.sim_speed == .Paused or
             self.victory_dialog.is_open or
             self.pause_dialog.is_open;
@@ -424,6 +433,13 @@ const GameScene = struct {
             }
         }
         zgui.end();
+
+        //xxx
+        if (true) {
+            const player = &self.world.players.items[0];
+
+            player.walk_pid.showUi();
+        }
     }
 
     fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {

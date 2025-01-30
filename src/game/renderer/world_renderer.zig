@@ -439,6 +439,7 @@ pub const WorldRenderer = struct {
     }
 
     fn renderPlayer(self: *Self, player: *const Player) void {
+        //
         const sk_t = player.sk_transform;
         const def = player.def;
 
@@ -451,14 +452,10 @@ pub const WorldRenderer = struct {
         // local
         const sk_center = vec2.init(0, 0);
 
-        //const sk_head_angle: f32 = std.math.degreesToRadians(30); // 30deg up
-        //const sk_tail_angle: f32 = std.math.degreesToRadians(45); // 45deg down
-        //const sk_tail_angle: f32 = std.math.degreesToRadians(-45); // 45deg up
+        const sk_aft = def.sk_aft_pivot;
+        const sk_fwd = def.sk_fwd_pivot;
 
-        const sk_aft = def.sk_aft_pivot; // sk_center.add(vec2.init(-spine_length * 0.5, 0));
-        const sk_fwd = def.sk_fwd_pivot; // sk_center.add(vec2.init(spine_length * 0.5, 0));
-
-        const sk_tail = sk_aft.add(vec2.init(-tail_length, 0).rotate(self.settings.tail_angle)); // rotate
+        const sk_tail = sk_aft.add(vec2.init(-tail_length, 0).rotate(self.settings.tail_angle));
 
         const body_offset_x = 0.1;
         const body_offset_top = 0.05;
@@ -560,7 +557,7 @@ pub const WorldRenderer = struct {
 
         // 1m line for reference
         {
-            const p1 = sk_t.pos.add(vec2.init(0, 2));
+            const p1 = sk_t.transform.pos.add(vec2.init(0, 2));
             const p2 = p1.add(vec2.init(1, 0));
             self.renderer2D.addLine(p1, p2, Layers.Player, Color.white);
         }

@@ -128,6 +128,9 @@ pub fn main() !void {
     zgui.backend.init(window.glfw_window);
     defer zgui.backend.deinit();
 
+    zgui.plot.init();
+    defer zgui.plot.deinit();
+
     // -----------------------------------
     var scene_manager = try SceneManager.create(long_term_alloc, per_frame_alloc, window, &content_manager, &save_manager);
     defer scene_manager.destroy();

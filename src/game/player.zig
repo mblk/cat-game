@@ -16,6 +16,8 @@ const physics = @import("physics.zig");
 const refs = @import("refs.zig");
 const ItemRef = refs.ItemRef;
 
+const PIDController = @import("../utils/pid_controller.zig").PIDController;
+
 pub const PlayerDef = struct {
     //
     shape_radius: f32 = 0.25,
@@ -45,11 +47,15 @@ pub const State = enum {
 };
 
 pub const Leg = struct {
+    const Self = @This();
+
+    // def
     min_length: f32,
     max_length: f32,
 
     pivot_local: vec2,
 
+    // state
     contact_age: f32 = 0,
     contact_max_phase: f32 = 0,
 
@@ -64,6 +70,56 @@ pub const Leg = struct {
     // calculated by player.update
     pivot_pos_world: vec2 = vec2.zero,
     paw_pos_world: vec2 = vec2.zero,
+
+    pub fn copyStateTo(self: Self, target: *Self) void {
+        target.contact_age = self.contact_age;
+        target.contact_max_phase = self.contact_max_phase;
+
+        target.has_contact = self.has_contact;
+        target.contact_body_id = self.contact_body_id;
+        target.contact_pos_local = self.contact_pos_local;
+
+        target.has_prev_contact = self.has_prev_contact;
+        target.prev_contact_body_id = self.prev_contact_body_id;
+        target.prev_contact_pos_local = self.prev_contact_pos_local;
+
+        target.pivot_pos_world = self.pivot_pos_world;
+        target.paw_pos_world = self.paw_pos_world;
+    }
+};
+
+pub const PlayerTransform = struct {
+    const Self = @This();
+
+    transform: Transform2,
+    flipped: bool,
+
+    fn flip(self: Self, in: vec2) vec2 {
+        if (self.flipped) {
+            return vec2{
+                .x = -in.x,
+                .y = in.y,
+            };
+        } else {
+            return in;
+        }
+    }
+
+    pub fn rotateLocalToWorld(self: Self, local_vector: vec2) vec2 {
+        return self.transform.rotateLocalToWorld(self.flip(local_vector));
+    }
+
+    pub fn rotateWorldToLocal(self: Self, world_vector: vec2) vec2 {
+        return self.flip(self.transform.rotateWorldToLocal(world_vector));
+    }
+
+    pub fn transformLocalToWorld(self: Self, local_position: vec2) vec2 {
+        return self.transform.transformLocalToWorld(self.flip(local_position));
+    }
+
+    pub fn transformWorldToLocal(self: Self, world_position: vec2) vec2 {
+        return self.flip(self.transform.transformWorldToLocal(world_position));
+    }
 };
 
 pub const Player = struct {
@@ -76,41 +132,48 @@ pub const Player = struct {
     main_body_id: b2.b2BodyId = b2.b2_nullBodyId,
 
     state: State = .Standing,
+    orientation_flipped: bool = false, // default: looking right, flipped=looking left
+
     jump_cooldown: f32 = 0,
 
-    sk_transform: Transform2 = undefined,
+    walking_idle_time: f32 = 0,
+    walk_pid: PIDController(f32) = PIDController(f32){
+        .kp = 100.0,
+        .ki = 20.0,
+        .kd = 0,
+        .integral_min = -1.0,
+        .integral_max = 1.0,
+    },
+
+    sk_transform: PlayerTransform = undefined,
     body_up_target: vec2 = undefined,
     body_up_curr: vec2 = vec2.init(0, 1),
 
     legs: [4]Leg,
-    //leg_speed: f32 = 1.0,
     leg_phase: f32 = 0.0, // 0..
     leg_update_order: [4]usize = [_]usize{ 0, 2, 1, 3 },
+    //leg_update_order: [4]usize = [_]usize{ 0, 1, 2, 3 },
     leg_update_index: usize = 0,
 
     force_request: vec2 = vec2.zero,
 
+    // hand
     show_hand: bool = false,
     hand_start: vec2 = undefined,
     hand_end: vec2 = undefined,
 
+    has_mouse_joint: bool = false,
+    mouse_joint: b2.b2JointId = b2.b2_nullJointId,
+
+    // hint
     show_hint: bool = false,
     hint_position: vec2 = undefined,
     hint_buffer: [128]u8 = undefined,
     hint_text: ?[]const u8 = null,
 
-    has_mouse_joint: bool = false,
-    mouse_joint: b2.b2JointId = b2.b2_nullJointId,
-
+    // ...
     total_kcal_eaten: f32 = 0,
     total_kcal_burned: f32 = 0,
-
-    // xxx
-    pid_i_hor: f32 = 0,
-    pid_i_vert: f32 = 0,
-
-    walking_idle_time: f32 = 0,
-    // xxx
 
     pub fn init(self: *Self, world: *World, position: vec2) void {
         std.log.info("player init", .{});
@@ -230,33 +293,48 @@ pub const Player = struct {
         const player_velocity = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
         const player_mass = b2.b2Body_GetMass(self.main_body_id);
 
-        renderer.addText(player_position.add(vec2.init(0, 3)), DebugLayer, Color.white, "vel {d:.2} mass {d:.2}", .{ player_velocity, player_mass });
-        //renderer.addText(player_position.add(vec2.init(0, 2.5)), DebugLayer, Color.white, "phase {d}", .{self.leg_phase});
-        renderer.addText(player_position.add(vec2.init(0, 2)), DebugLayer, Color.white, "{s}", .{@tagName(self.state)});
+        const input_axis = self.getMoveInputAxis(context.input);
+
+        //const preferred_attach_dir = vec2.init(0, -1);
+        std.debug.assert(self.body_up_curr.len() > 0.9 and self.body_up_curr.len() < 1.1);
+        const preferred_attach_dir = self.body_up_curr.neg();
+
+        const contact_situation = self.determineContactSituation(preferred_attach_dir);
+
+        renderer.addText(player_position.add(vec2.init(0, 3)), DebugLayer, Color.white, "vel {d:.2} ({d:.2}) rvel {d:.2} ({d:.2}) mass {d:.2}", .{
+            player_velocity,
+            player_velocity.len(),
+            contact_situation.avg_rvel,
+            contact_situation.avg_rvel.len(),
+            player_mass,
+        });
+        //renderer.addText(player_position.add(vec2.init(0, 2.5)), DebugLayer, Color.white, "pid_hor {d:.3} pid_vert {d:.3}", .{ self.pid_i_hor, self.pid_i_vert });
+        renderer.addText(player_position.add(vec2.init(0, 2)), DebugLayer, Color.white, "{s} flipped={any}", .{
+            @tagName(self.state),
+            self.orientation_flipped,
+        });
 
         // ... reset things ...
-        self.body_up_target = vec2.init(0, 1);
         self.force_request = vec2.zero;
 
-        // xxx
-        const contact_situation = self.determineContactSituation();
         if (contact_situation.has_contact) {
             self.body_up_target = contact_situation.avg_normal;
+        } else {
+            self.body_up_target = vec2.init(0, 1);
         }
-        // xxx
 
         switch (self.state) {
             .Standing => {
-                self.updateStanding(context);
+                self.updateStanding(context, contact_situation);
             },
             .Walking => {
-                self.updateWalking(context);
+                self.updateWalking(context, contact_situation);
             },
             .Jumping => {
-                self.updateJumping(context);
+                self.updateJumping(context, contact_situation);
             },
             .Falling => {
-                self.updateFalling(context);
+                self.updateFalling(context, contact_situation);
             },
         }
 
@@ -276,17 +354,32 @@ pub const Player = struct {
 
         self.body_up_curr = self.body_up_curr.rotate(angle_rate_per_frame);
 
-        //std.log.info("angle diff {d}", .{angle_diff});
-        //std.log.info("angle_rate_per_s {d}", .{angle_rate_per_s});
-        //self.body_up_curr = self.body_up_curr.add(self.body_up_target).normalize();
-
-        self.sk_transform = Transform2{
-            .pos = player_position,
-            .rot = rot2.from_up_vector(self.body_up_curr),
+        self.sk_transform = PlayerTransform{
+            .transform = Transform2{
+                .pos = player_position,
+                .rot = rot2.from_up_vector(self.body_up_curr),
+            },
+            .flipped = self.orientation_flipped,
         };
 
-        self.updateLegsTest(context);
+        self.updateLegsTest(context, contact_situation);
         self.applyForceRequest();
+
+        // flip orientation?
+        if (true) {
+            const vel_world = if (contact_situation.has_contact) contact_situation.avg_rvel else player_velocity;
+
+            const vel_sk = self.sk_transform.rotateWorldToLocal(vel_world);
+
+            //std.log.info("vel_sk {d:.3}", .{vel_sk});
+            //_ = input_axis;
+
+            if (vel_sk.x < -0.5 and input_axis.len() > 0.1) {
+                std.log.info("flip", .{});
+                self.orientation_flipped = !self.orientation_flipped;
+                self.flipLegs();
+            }
+        }
 
         // grab stuff?
         if (self.has_mouse_joint) {
@@ -416,7 +509,24 @@ pub const Player = struct {
         const force_request = self.force_request;
         self.force_request = vec2.zero;
 
-        // TODO maybe do clamping here?
+        if (force_request.len() < 0.001) {
+            return;
+        }
+
+        // clamp force
+        const player_mass = b2.b2Body_GetMass(self.main_body_id);
+        const max_force = player_mass * 9.81 * self.def.max_move_force_factor;
+        const force_len_to_apply = std.math.clamp(force_request.len(), 0, max_force);
+        const force_dir = force_request.normalize();
+        const force_to_apply = force_dir.scale(force_len_to_apply);
+
+        if (true) {
+            const player_position = self.getTransform().pos;
+
+            const drender = engine.Renderer2D.Instance;
+            drender.addLine(player_position, player_position.add(force_dir), DebugLayer, Color.blue);
+            drender.addText(player_position.add(force_dir), DebugLayer, Color.white, "{d:.1} N", .{force_len_to_apply});
+        }
 
         var contact_count: usize = 0;
 
@@ -428,10 +538,10 @@ pub const Player = struct {
 
         if (contact_count > 0) {
             const count_f32: f32 = @floatFromInt(contact_count);
-            const force_per_contact = force_request.neg().scale(1 / count_f32);
+            const force_per_contact = force_to_apply.neg().scale(1 / count_f32);
 
             // apply to self
-            b2.b2Body_ApplyForceToCenter(self.main_body_id, force_request.to_b2(), true);
+            b2.b2Body_ApplyForceToCenter(self.main_body_id, force_to_apply.to_b2(), true);
 
             // apply opposite force to other bodies
             for (&self.legs) |*leg| {
@@ -444,8 +554,13 @@ pub const Player = struct {
         }
     }
 
-    fn updateLegsTest(self: *Self, context: PlayerUpdateContext) void {
-        const player_vel = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
+    fn updateLegsTest(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
+        // if (!contact_situation.has_contact) {
+        //     return;
+        // }
+
+        const player_vel = contact_situation.avg_rvel;
+        //const player_vel = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
 
         // determine update-rate
         const update_rate = std.math.clamp(
@@ -497,7 +612,7 @@ pub const Player = struct {
             // find new contact point
             const pivot_world = sk_transform.transformLocalToWorld(active_leg.pivot_local);
             const ground_contacts = self.findGroundContacts(pivot_world, best_direction, active_leg.max_length * 1.3, false);
-            //const ground_contacts = self.findGroundContacts(pivot_world, best_direction, active_leg.max_length, false);
+
             if (ground_contacts.contact_count > 0) {
                 const contact = ground_contacts.contact1.?;
 
@@ -573,6 +688,16 @@ pub const Player = struct {
         }
     }
 
+    fn flipLegs(self: *Self) void {
+        //
+        const before: [4]Leg = self.legs;
+
+        before[0].copyStateTo(&self.legs[2]);
+        before[1].copyStateTo(&self.legs[3]);
+        before[2].copyStateTo(&self.legs[0]);
+        before[3].copyStateTo(&self.legs[1]);
+    }
+
     fn changeState(self: *Self, new_state: State) void {
         std.log.info("changeState: {s}", .{@tagName(new_state)});
 
@@ -583,29 +708,34 @@ pub const Player = struct {
         } else {
             self.jump_cooldown = -1.0;
         }
+
+        self.walk_pid.reset();
     }
 
-    fn doJump(self: *Self) void {
-        const player_velocity = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
+    fn doJump(self: *Self, contact_situation: ContactSituation) void {
+        if (!contact_situation.has_contact) {
+            std.log.err("DoJump: no ground contact", .{});
+            return;
+        }
+
+        const player_velocity = contact_situation.avg_rvel;
         const player_mass = b2.b2Body_GetMass(self.main_body_id);
 
-        const target_vel = vec2.init(1, 1).scale(5);
+        // TODO sk_transform not set at this point
+        const jump_dir_world = self.sk_transform.rotateLocalToWorld(vec2.init(1, 1));
+
+        const target_vel = jump_dir_world.scale(5);
         const vel_err = target_vel.sub(player_velocity);
         const p = vel_err.scale(player_mass);
-
-        // const curr_vy = player_velocity.y;
-        // const target_vy = 10.0;
-        // const err_vy = target_vy - curr_vy;
-        // const i_y = player_mass * err_vy;
 
         b2.b2Body_ApplyLinearImpulseToCenter(self.main_body_id, p.to_b2(), true);
 
         self.total_kcal_burned += 10.0;
     }
 
-    fn updateStanding(self: *Self, context: PlayerUpdateContext) void {
+    fn updateStanding(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
         //
-        const player_velocity = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
+        //const player_velocity = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
 
         const move_input = self.getMoveInputAxis(context.input);
 
@@ -619,26 +749,24 @@ pub const Player = struct {
 
         // jump?
         if (context.input.consumeKeyDownEvent(.space)) {
-            self.doJump();
+            self.doJump(contact_situation);
 
             self.changeState(.Jumping);
             return;
         }
 
         // start walking?
-        if (move_input.len() > 0.1 or player_velocity.len() > 0.1) {
+        if (move_input.len() > 0.1 or contact_situation.avg_rvel.len() > 0.1) {
             self.changeState(.Walking);
             return;
         }
     }
 
-    fn updateWalking(self: *Self, context: PlayerUpdateContext) void {
+    fn updateWalking(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
         //
         const player_position = vec2.from_b2(b2.b2Body_GetPosition(self.main_body_id));
-        const player_velocity2 = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
+        //const player_velocity2 = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
         const player_mass = b2.b2Body_GetMass(self.main_body_id);
-
-        const contact_situation = self.determineContactSituation();
 
         if (contact_situation.has_contact) {
             self.body_up_target = contact_situation.avg_normal;
@@ -648,17 +776,6 @@ pub const Player = struct {
 
         const move_input = self.getMoveInputAxis(context.input);
 
-        // return to idle?
-        if (contact_situation.has_contact and player_velocity2.len() < 0.1 and move_input.len() < 0.1) {
-            self.walking_idle_time += context.dt;
-
-            if (self.walking_idle_time > 1.0) {
-                self.walking_idle_time = 0;
-                self.changeState(.Standing);
-                return;
-            }
-        }
-
         // falling?
         if (!contact_situation.has_contact) {
             self.changeState(.Falling);
@@ -667,13 +784,21 @@ pub const Player = struct {
 
         // jump?
         if (context.input.consumeKeyDownEvent(.space)) {
-            self.doJump();
-
+            self.doJump(contact_situation);
             self.changeState(.Jumping);
             return;
         }
 
-        // ...
+        // return to idle?
+        if (contact_situation.has_contact and contact_situation.avg_rvel.len() < 0.1 and move_input.len() < 0.1) {
+            self.walking_idle_time += context.dt;
+
+            if (self.walking_idle_time > 2.5) {
+                self.walking_idle_time = 0;
+                self.changeState(.Standing);
+                return;
+            }
+        }
 
         // ...
         const v_n = contact_situation.avg_normal;
@@ -691,13 +816,16 @@ pub const Player = struct {
             //const proj_vel = player_velocity.dot(v_right);
             const proj_vel = contact_situation.avg_rvel.dot(v_right);
             const target_vel = move_input.x * max_velocity;
-            const err_vel = target_vel - proj_vel;
+            //const err_vel = target_vel - proj_vel;
 
-            self.pid_i_hor += err_vel;
+            //self.pid_i_hor += err_vel;
+
+            const output = self.walk_pid.update(context.dt, target_vel, proj_vel);
+            const acc = output;
 
             //std.log.info("err_vel {d} pid_i {d}", .{ err_vel, self.pid_i });
 
-            const acc = err_vel * 50 + self.pid_i_hor * 1;
+            //const acc = err_vel * 50; // + self.pid_i_hor * 1;
             const f = player_mass * acc;
             const f_vec = v_right.scale(f);
 
@@ -721,7 +849,7 @@ pub const Player = struct {
 
             //std.log.info("dist_err {d:.3} vel_err {d:.3} pid_i {d:.3}", .{ err_dist, err_vel, self.pid_i_vert });
 
-            const acc = err_vel * 50 + self.pid_i_vert * 1;
+            const acc = err_vel * 50; // + self.pid_i_vert * 1;
             const f = player_mass * acc;
             const f_vec = v_up.scale(f);
 
@@ -747,40 +875,15 @@ pub const Player = struct {
         }
 
         if (true) {
-
-            // clamp force here?
-            //const max_move_force = player_mass * 9.81 * self.def.max_move_force_factor;
-            // const f = std.math.clamp(player_mass * acc, 0, max_move_force);
-
-            const drender = engine.Renderer2D.Instance;
-            drender.addLine(player_position, player_position.add(f_total_vec.normalize()), DebugLayer, Color.blue);
-            drender.addText(player_position.add(f_total_vec.normalize()), DebugLayer, Color.white, "{d:.1} N", .{f_total_vec.len()});
-
-            //b2.b2Body_ApplyForceToCenter(self.main_body_id, f_total_vec.to_b2(), true);
-
             self.force_request = self.force_request.add(f_total_vec);
-
-            // const count_f32: f32 = @floatFromInt(ground_contacts.contact_count);
-            // const force_per_contact = f_total_vec.neg().scale(1 / count_f32);
-
-            // // opposite force to other bodies
-            // if (ground_contacts.contact1) |contact| {
-            //     if (b2.b2Body_GetType(contact.body_id) == b2.b2_dynamicBody) {
-            //         b2.b2Body_ApplyForceToCenter(contact.body_id, force_per_contact.to_b2(), true);
-            //     }
-            // }
-            // if (ground_contacts.contact2) |contact| {
-            //     if (b2.b2Body_GetType(contact.body_id) == b2.b2_dynamicBody) {
-            //         b2.b2Body_ApplyForceToCenter(contact.body_id, force_per_contact.to_b2(), true);
-            //     }
-            // }
         }
     }
 
-    fn updateJumping(self: *Self, context: PlayerUpdateContext) void {
+    fn updateJumping(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
         //
         //_ = self;
         //_ = context;
+        _ = contact_situation;
 
         self.jump_cooldown -= context.dt;
 
@@ -789,13 +892,17 @@ pub const Player = struct {
         }
     }
 
-    fn updateFalling(self: *Self, context: PlayerUpdateContext) void {
+    fn updateFalling(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
         //
-        const ground_contacts = self.findGroundContacts(self.getTransform().pos, vec2.init(0, -1), 1.0, false);
+        //_ = contact_situation;
+
+        //
+        //const ground_contacts = self.findGroundContacts(self.getTransform().pos, vec2.init(0, -1), 1.0, false);
 
         _ = context;
 
-        if (ground_contacts.contact_count > 0) {
+        //if (ground_contacts.contact_count > 0) {
+        if (contact_situation.has_contact) {
             self.changeState(.Walking);
             return;
         }
@@ -1074,6 +1181,7 @@ pub const Player = struct {
 
     pub fn determineContactSituation(
         self: *Self,
+        preferred_attach_dir: vec2,
     ) ContactSituation {
         //
         const debug = false;
@@ -1091,10 +1199,9 @@ pub const Player = struct {
 
         const player_vel = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
 
-        var hit_normal_sum: vec2 = vec2.zero;
-        var hit_weight_sum: f32 = 0;
         var hit_count: usize = 0;
-
+        var hit_weight_sum: f32 = 0;
+        var hit_normal_sum: vec2 = vec2.zero;
         var hit_pos_sum: vec2 = vec2.zero;
         var hit_rel_vel_sum: vec2 = vec2.zero;
 
@@ -1139,17 +1246,31 @@ pub const Player = struct {
                 // 1 = very close
                 const closeness_factor = std.math.clamp((ray_length - dist) / ray_length, 0, 1);
 
-                hit_normal_sum = hit_normal_sum.add(hit_normal.scale(closeness_factor));
-                hit_pos_sum = hit_pos_sum.add(hit_pos_world.scale(closeness_factor));
-                hit_rel_vel_sum = hit_rel_vel_sum.add(rel_vel.scale(closeness_factor));
+                // 0..1
+                // 0 = bad angle
+                // 1 = good angle
+                const angle_factor = std.math.clamp(1.0 - vec2.angleBetween(ray_translation, preferred_attach_dir) / std.math.pi, 0, 1);
 
-                hit_weight_sum += closeness_factor;
+                std.debug.assert(closeness_factor >= 0 and closeness_factor <= 1);
+                std.debug.assert(angle_factor >= 0 and angle_factor <= 1);
+
+                //const weight = (closeness_factor * 1.0 + angle_factor * 3.0) / 4.0;
+                const weight = std.math.clamp(closeness_factor * angle_factor, 0, 1);
+
+                std.debug.assert(weight >= 0 and weight <= 1);
+
+                //_ = angle_factor;
+
                 hit_count += 1;
+                hit_weight_sum += weight;
+                hit_normal_sum = hit_normal_sum.add(hit_normal.scale(weight));
+                hit_pos_sum = hit_pos_sum.add(hit_pos_world.scale(weight));
+                hit_rel_vel_sum = hit_rel_vel_sum.add(rel_vel.scale(weight));
 
                 if (debug) {
                     drender.addLine(ray_start, hit_pos_world, DebugLayer, Color.red);
                     drender.addPointWithPixelSize(hit_pos_world, 10, DebugLayer, Color.red);
-                    //drender.addText(hit_pos_world, DebugLayer, Color.white, "{d:.3}", .{closeness_factor});
+                    drender.addText(hit_pos_world, DebugLayer, Color.white, "{d:.3}", .{weight});
                 }
             }
         }
@@ -1160,7 +1281,15 @@ pub const Player = struct {
             const hit_rel_vel_avg = hit_rel_vel_sum.scale(1.0 / hit_weight_sum);
 
             if (hit_normal_avg.len() < 0.1) {
-                std.debug.assert(false);
+                std.log.err("unknown contact situation", .{});
+                //std.debug.assert(false);
+
+                return ContactSituation{
+                    .has_contact = true,
+                    .avg_normal = vec2.init(0, 1),
+                    .avg_pos = hit_pos_avg,
+                    .avg_rvel = hit_rel_vel_avg,
+                };
             }
 
             hit_normal_avg = hit_normal_avg.normalize();
