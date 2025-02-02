@@ -129,6 +129,21 @@ pub const vec2 = packed struct {
         return std.math.acos(std.math.clamp(dotProduct, -1, 1));
     }
 
+    // returns: -pi...+pi
+    pub fn angleFromTo(from: vec2, to: vec2) f32 {
+        const angle_to = to.angle();
+        const angle_from = from.angle();
+        var angle_diff = angle_to - angle_from;
+
+        if (angle_diff < -std.math.pi) {
+            angle_diff += std.math.pi * 2.0;
+        } else if (angle_diff > std.math.pi) {
+            angle_diff -= std.math.pi * 2.0;
+        }
+
+        return angle_diff;
+    }
+
     pub fn lerp(a: vec2, b: vec2, t: f32) vec2 {
         return vec2{
             .x = std.math.lerp(a.x, b.x, t),

@@ -32,12 +32,18 @@ pub const PlayerDef = struct {
     //
     max_walk_velocity: f32 = 1, // m/s
     max_run_velocity: f32 = 5, // m/s
-    max_move_force_factor: f32 = 2, // F_max = m*g*factor
+    max_move_force_factor: f32 = 2.0, // F_max = m*g*factor
+
+    max_turn_rate: f32 = std.math.degreesToRadians(180.0), // rad/s
+
+    jump_min_dv: f32 = 1.0,
+    jump_max_dv: f32 = 10.0,
 };
 
 pub const State = enum {
     Standing,
     Walking,
+    JumpCharging,
     Jumping,
     Falling,
 
@@ -135,31 +141,29 @@ pub const Player = struct {
     orientation_flipped: bool = false, // default: looking right, flipped=looking left
 
     jump_cooldown: f32 = 0,
+    jump_charge: f32 = 0,
 
     walking_idle_time: f32 = 0,
     walk_pid: PIDController(f32) = PIDController(f32){
-        .kp = 100.0,
-        .ki = 20.0,
-        .kd = 0,
-        .integral_min = -1.0,
-        .integral_max = 1.0,
+        .kp = 10.0, //100.0,
+        .ki = 0.0, //20.0,
+        .kd = 0.0,
+        //.integral_min = -1.0,
+        //.integral_max = 1.0,
     },
 
     sk_transform: PlayerTransform = undefined,
-    body_up_target: vec2 = undefined,
     body_up_curr: vec2 = vec2.init(0, 1),
 
     legs: [4]Leg,
     leg_phase: f32 = 0.0, // 0..
     leg_update_order: [4]usize = [_]usize{ 0, 2, 1, 3 },
-    //leg_update_order: [4]usize = [_]usize{ 0, 1, 2, 3 },
+    leg_update_order2: [4]usize = [_]usize{ 0, 1, 2, 3 },
     leg_update_index: usize = 0,
-
-    force_request: vec2 = vec2.zero,
 
     // hand
     show_hand: bool = false,
-    hand_start: vec2 = undefined,
+    //hand_start: vec2 = undefined,
     hand_end: vec2 = undefined,
 
     has_mouse_joint: bool = false,
@@ -170,6 +174,12 @@ pub const Player = struct {
     hint_position: vec2 = undefined,
     hint_buffer: [128]u8 = undefined,
     hint_text: ?[]const u8 = null,
+
+    // debug settings
+    debug_show_state: bool = false,
+    debug_show_force: bool = false,
+    debug_show_leg_cast: bool = false,
+    debug_show_pid: bool = false,
 
     // ...
     total_kcal_eaten: f32 = 0,
@@ -249,12 +259,18 @@ pub const Player = struct {
         b2.b2DestroyBody(self.main_body_id);
     }
 
-    pub const PlayerUpdateContext = struct {
+    const PlayerUpdateContext = struct {
         dt: f32,
         input: *engine.InputState,
         mouse_position: vec2,
         control_enabled: bool,
-        renderer: *engine.Renderer2D,
+
+        player_position: vec2,
+        player_velocity: vec2,
+        player_mass: f32,
+        input_axis: vec2,
+
+        contact_situation: ContactSituation,
     };
 
     pub fn update(
@@ -263,16 +279,7 @@ pub const Player = struct {
         input: *engine.InputState,
         mouse_position: vec2,
         control_enabled: bool,
-        renderer: *engine.Renderer2D,
     ) void {
-        //
-        const context = PlayerUpdateContext{
-            .dt = dt,
-            .input = input,
-            .mouse_position = mouse_position,
-            .control_enabled = control_enabled,
-            .renderer = renderer,
-        };
 
         // reset hand/hint
         self.show_hand = false;
@@ -288,100 +295,109 @@ pub const Player = struct {
             return;
         }
 
-        // get state
+        // Step 0: Get basic state
         const player_position = vec2.from_b2(b2.b2Body_GetPosition(self.main_body_id));
         const player_velocity = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
         const player_mass = b2.b2Body_GetMass(self.main_body_id);
+        const input_axis = self.getMoveInputAxis(input);
 
-        const input_axis = self.getMoveInputAxis(context.input);
-
-        //const preferred_attach_dir = vec2.init(0, -1);
+        // Step 1: Determine contact situation
         std.debug.assert(self.body_up_curr.len() > 0.9 and self.body_up_curr.len() < 1.1);
         const preferred_attach_dir = self.body_up_curr.neg();
-
         const contact_situation = self.determineContactSituation(preferred_attach_dir);
 
-        renderer.addText(player_position.add(vec2.init(0, 3)), DebugLayer, Color.white, "vel {d:.2} ({d:.2}) rvel {d:.2} ({d:.2}) mass {d:.2}", .{
-            player_velocity,
-            player_velocity.len(),
-            contact_situation.avg_rvel,
-            contact_situation.avg_rvel.len(),
-            player_mass,
-        });
-        //renderer.addText(player_position.add(vec2.init(0, 2.5)), DebugLayer, Color.white, "pid_hor {d:.3} pid_vert {d:.3}", .{ self.pid_i_hor, self.pid_i_vert });
-        renderer.addText(player_position.add(vec2.init(0, 2)), DebugLayer, Color.white, "{s} flipped={any}", .{
-            @tagName(self.state),
-            self.orientation_flipped,
-        });
+        const context = PlayerUpdateContext{
+            .dt = dt,
+            .input = input,
+            .mouse_position = mouse_position,
+            .control_enabled = control_enabled,
 
-        // ... reset things ...
-        self.force_request = vec2.zero;
+            .player_position = player_position,
+            .player_velocity = player_velocity,
+            .player_mass = player_mass,
+            .input_axis = input_axis,
 
-        if (contact_situation.has_contact) {
-            self.body_up_target = contact_situation.avg_normal;
-        } else {
-            self.body_up_target = vec2.init(0, 1);
-        }
-
-        switch (self.state) {
-            .Standing => {
-                self.updateStanding(context, contact_situation);
-            },
-            .Walking => {
-                self.updateWalking(context, contact_situation);
-            },
-            .Jumping => {
-                self.updateJumping(context, contact_situation);
-            },
-            .Falling => {
-                self.updateFalling(context, contact_situation);
-            },
-        }
-
-        const angle_target = self.body_up_target.angle();
-        const angle_curr = self.body_up_curr.angle();
-        var angle_diff = angle_target - angle_curr;
-
-        if (angle_diff < -std.math.pi) {
-            angle_diff += std.math.pi * 2.0;
-        } else if (angle_diff > std.math.pi) {
-            angle_diff -= std.math.pi * 2.0;
-        }
-
-        const am: f32 = std.math.degreesToRadians(180.0);
-        const angle_rate_per_s = std.math.clamp(angle_diff * 10.0, -am, am);
-        const angle_rate_per_frame = angle_rate_per_s * dt;
-
-        self.body_up_curr = self.body_up_curr.rotate(angle_rate_per_frame);
-
-        self.sk_transform = PlayerTransform{
-            .transform = Transform2{
-                .pos = player_position,
-                .rot = rot2.from_up_vector(self.body_up_curr),
-            },
-            .flipped = self.orientation_flipped,
+            .contact_situation = contact_situation,
         };
 
+        // debug
+        if (self.debug_show_state) {
+            const drender = engine.Renderer2D.Instance;
+            drender.addText(player_position.add(vec2.init(0, 3)), DebugLayer, Color.white, "vel {d:.2} rvel {d:.2} mass {d:.2}", .{
+                player_velocity.len(),
+                contact_situation.avg_rvel.len(),
+                player_mass,
+            });
+            drender.addText(player_position.add(vec2.init(0, 2)), DebugLayer, Color.white, "{s} flipped={any}", .{
+                @tagName(self.state),
+                self.orientation_flipped,
+            });
+        }
+
+        // Step 2: Update state
+        self.updateState(context);
+
+        // Step 3: Update body orientation
+        self.updateBodyOrientation(context);
+
+        // Step 4: Update legs
         self.updateLegsTest(context, contact_situation);
-        self.applyForceRequest();
+
+        // Step 5: Apply forces
+        var force_request = vec2.zero;
+
+        if (self.state == .Standing or self.state == .Walking or self.state == .JumpCharging) {
+            self.updateWalking(context, &force_request);
+        }
+
+        self.applyForceRequest(force_request);
+
+        // Step 6: grab stuff?
+        self.updateItemHandling(context);
+    }
+
+    fn updateBodyOrientation(self: *Self, context: PlayerUpdateContext) void {
 
         // flip orientation?
         if (true) {
-            const vel_world = if (contact_situation.has_contact) contact_situation.avg_rvel else player_velocity;
-
+            const vel_world = if (context.contact_situation.has_contact)
+                context.contact_situation.avg_rvel
+            else
+                context.player_velocity;
             const vel_sk = self.sk_transform.rotateWorldToLocal(vel_world);
 
-            //std.log.info("vel_sk {d:.3}", .{vel_sk});
-            //_ = input_axis;
-
-            if (vel_sk.x < -0.5 and input_axis.len() > 0.1) {
+            // moving backwards and has input?
+            if (vel_sk.x < -0.5 and context.input_axis.len() > 0.1) {
                 std.log.info("flip", .{});
                 self.orientation_flipped = !self.orientation_flipped;
                 self.flipLegs();
             }
         }
 
-        // grab stuff?
+        // get up target
+        const body_up_target = self.getBodyUpTarget(context);
+
+        // change current up
+        const angle_diff = vec2.angleFromTo(self.body_up_curr, body_up_target);
+        const angle_rate_per_s = std.math.clamp(angle_diff * 10.0, -self.def.max_turn_rate, self.def.max_turn_rate);
+        const angle_rate_per_frame = angle_rate_per_s * context.dt;
+
+        self.body_up_curr = self.body_up_curr.rotate(angle_rate_per_frame);
+
+        self.sk_transform = PlayerTransform{
+            .transform = Transform2{
+                .pos = context.player_position,
+                .rot = rot2.from_up_vector(self.body_up_curr),
+            },
+            .flipped = self.orientation_flipped,
+        };
+    }
+
+    fn updateItemHandling(self: *Self, context: PlayerUpdateContext) void {
+        const input = context.input;
+        const mouse_position = context.mouse_position;
+
+        //
         if (self.has_mouse_joint) {
             const target_body = b2.b2Joint_GetBodyB(self.mouse_joint);
 
@@ -401,7 +417,6 @@ pub const Player = struct {
             }
 
             self.show_hand = true;
-            self.hand_start = player_position;
             self.hand_end = mouse_position;
         } else {
             const aabb = b2.b2AABB{
@@ -419,7 +434,6 @@ pub const Player = struct {
                 .point = mouse_position,
                 .hit = false,
                 .body_id = b2.b2_nullBodyId,
-                //.player_body_id = self.main_body_id,
             };
 
             var query_filter = b2.b2DefaultQueryFilter();
@@ -429,7 +443,6 @@ pub const Player = struct {
             _ = b2.b2World_OverlapAABB(
                 self.world.world_id,
                 aabb,
-                //b2.b2DefaultQueryFilter(),
                 query_filter,
                 my_query_func,
                 &query_context,
@@ -439,7 +452,6 @@ pub const Player = struct {
                 std.debug.assert(b2.B2_IS_NON_NULL(query_context.body_id));
 
                 self.show_hand = true;
-                self.hand_start = vec2.init(player_position.x, player_position.y);
                 self.hand_end = mouse_position;
 
                 if (UserData.getFromBody(query_context.body_id)) |user_data| {
@@ -505,10 +517,146 @@ pub const Player = struct {
         }
     }
 
-    fn applyForceRequest(self: *Self) void {
-        const force_request = self.force_request;
-        self.force_request = vec2.zero;
+    fn updateState(self: *Self, context: PlayerUpdateContext) void {
+        const contact_situation = context.contact_situation;
+        const input_axis = context.input_axis;
 
+        if (self.jump_cooldown > 0.0) {
+            self.jump_cooldown -= context.dt;
+        }
+
+        switch (self.state) {
+            .Standing => {
+                // jump?
+                if (context.input.consumeKeyDownEvent(.space)) {
+                    self.changeState(.JumpCharging);
+                    return;
+                }
+
+                // start walking?
+                if (input_axis.len() > 0.1 or contact_situation.avg_rvel.len() > 0.1) {
+                    self.changeState(.Walking);
+                    return;
+                }
+            },
+            .Walking => {
+                // falling?
+                if (!contact_situation.has_contact) {
+                    self.changeState(.Falling);
+                    return;
+                }
+
+                // jump?
+                if (context.input.consumeKeyDownEvent(.space)) {
+                    self.changeState(.JumpCharging);
+                    return;
+                }
+
+                // return to idle?
+                if (contact_situation.has_contact and contact_situation.avg_rvel.len() < 0.1 and input_axis.len() < 0.1) {
+                    self.walking_idle_time += context.dt;
+
+                    if (self.walking_idle_time > 2.5) {
+                        self.walking_idle_time = 0;
+                        self.changeState(.Standing);
+                        return;
+                    }
+                }
+            },
+            .JumpCharging => {
+                //
+                self.jump_charge += context.dt;
+
+                if (self.jump_charge > 0.25) {
+                    const v_player_to_mouse = context.mouse_position.sub(context.player_position);
+
+                    const jump_power = std.math.clamp(
+                        v_player_to_mouse.len() * 2.5, // TODO scale depending on camera-distance?
+                        self.def.jump_min_dv,
+                        self.def.jump_max_dv,
+                    );
+
+                    const jump_dir = if (v_player_to_mouse.len() > 0.1)
+                        v_player_to_mouse.normalize()
+                    else
+                        self.sk_transform.rotateLocalToWorld(vec2.init(1, 1)).normalize();
+
+                    if (true) {
+                        const drender = engine.Renderer2D.Instance;
+
+                        const p1 = context.player_position;
+                        const p2 = p1.add(jump_dir);
+
+                        drender.addLine(p1, p2, DebugLayer, Color.red);
+                        self.simulateJump(jump_dir, jump_power);
+                    }
+
+                    if (context.input.consumeKeyDownEvent(.c)) {
+                        self.changeState(.Walking);
+                        return;
+                    }
+
+                    if (!context.input.getKeyState(.space)) {
+                        self.doJump(jump_dir, jump_power);
+                        self.changeState(.Jumping);
+                    }
+                } else {
+                    //
+                    if (!context.input.getKeyState(.space)) {
+                        const jump_dir = self.sk_transform.rotateLocalToWorld(vec2.init(1, 1)).normalize();
+                        const jump_power = (self.def.jump_max_dv - self.def.jump_min_dv) * 0.5;
+
+                        self.doJump(jump_dir, jump_power);
+                        self.changeState(.Jumping);
+                    }
+                }
+            },
+            .Jumping => {
+                //
+                if (self.jump_cooldown < 0.0) {
+                    self.changeState(.Falling);
+                }
+            },
+            .Falling => {
+                //
+                if (contact_situation.has_contact) {
+                    self.changeState(.Walking);
+                    return;
+                }
+            },
+        }
+    }
+
+    fn changeState(self: *Self, new_state: State) void {
+        std.log.info("changeState: {s} -> {s}", .{ @tagName(self.state), @tagName(new_state) });
+
+        self.state = new_state;
+
+        if (new_state == .JumpCharging) {
+            self.jump_cooldown = 0.5;
+            self.jump_charge = 0.0;
+        }
+        if (new_state == .Jumping) {
+            self.jump_cooldown = 0.5;
+            //self.jump_power = 0.0;
+        }
+
+        //self.walk_pid.reset();
+    }
+
+    fn getBodyUpTarget(self: Self, context: PlayerUpdateContext) vec2 {
+        const contact_situation = context.contact_situation;
+
+        _ = self;
+
+        if (contact_situation.has_contact) {
+            return contact_situation.avg_normal;
+        } else {
+            return vec2.init(0, 1);
+        }
+    }
+
+    fn applyForceRequest(self: *Self, force_request: vec2) void {
         if (force_request.len() < 0.001) {
             return;
         }
@@ -520,12 +668,11 @@ pub const Player = struct {
         const force_dir = force_request.normalize();
         const force_to_apply = force_dir.scale(force_len_to_apply);
 
-        if (true) {
+        if (self.debug_show_force) {
             const player_position = self.getTransform().pos;
-
             const drender = engine.Renderer2D.Instance;
             drender.addLine(player_position, player_position.add(force_dir), DebugLayer, Color.blue);
-            drender.addText(player_position.add(force_dir), DebugLayer, Color.white, "{d:.1} N", .{force_len_to_apply});
+            drender.addText(player_position.add(force_dir), DebugLayer, Color.white, "{d:.1}/{d:.1} N", .{ force_len_to_apply, force_request.len() });
         }
 
         var contact_count: usize = 0;
@@ -547,7 +694,7 @@ pub const Player = struct {
             for (&self.legs) |*leg| {
                 if (leg.has_contact) {
                     if (b2.b2Body_GetType(leg.contact_body_id) == b2.b2_dynamicBody) {
-                        b2.b2Body_ApplyForceToCenter(leg.contact_body_id, force_per_contact.to_b2(), true);
+                        b2.b2Body_ApplyForceToCenter(leg.contact_body_id, force_per_contact.to_b2(), true); // TODO not at center
                     }
                 }
             }
@@ -555,12 +702,8 @@ pub const Player = struct {
     }
 
     fn updateLegsTest(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
-        // if (!contact_situation.has_contact) {
-        //     return;
-        // }
-
+        //
         const player_vel = contact_situation.avg_rvel;
-        //const player_vel = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
 
         // determine update-rate
         const update_rate = std.math.clamp(
@@ -583,19 +726,28 @@ pub const Player = struct {
         }
 
         // find best direction for ray-casting
-        const sk_transform = self.sk_transform;
+        var best_direction = vec2.zero;
+        best_direction = best_direction.add(player_vel);
+        best_direction = best_direction.add(self.sk_transform.rotateLocalToWorld(vec2.init(0, -1)));
+        best_direction = best_direction.normalize();
 
-        var best_direction = vec2.init(0, -1);
-        if (player_vel.len() > 0.1) {
-            best_direction = player_vel.normalize();
-        } else {
-            best_direction = sk_transform.rotateLocalToWorld(vec2.init(0, -1));
+        // const best_direction = if (player_vel.len() > 0.1)
+        //     player_vel.normalize()
+        // else
+        //     self.sk_transform.rotateLocalToWorld(vec2.init(0, -1));
+
+        if (self.debug_show_leg_cast) {
+            _ = self.findGroundContacts(self.sk_transform.transformLocalToWorld(self.def.sk_fwd_pivot), best_direction, self.legs[0].max_length, true);
         }
-        //_ = self.findGroundContacts(sk_transform.transformLocalToWorld(self.def.sk_fwd_pivot), best_direction, self.legs[0].max_length, true);
 
         // update leg
         if (do_update) {
-            const next_leg_index = self.leg_update_order[self.leg_update_index];
+            const leg_order = if (player_vel.len() > 2.5)
+                self.leg_update_order2
+            else
+                self.leg_update_order;
+
+            const next_leg_index = leg_order[self.leg_update_index];
             const active_leg = &self.legs[next_leg_index];
 
             self.leg_update_index = (self.leg_update_index + 1) % 4;
@@ -610,7 +762,7 @@ pub const Player = struct {
             active_leg.contact_pos_local = vec2.zero;
 
             // find new contact point
-            const pivot_world = sk_transform.transformLocalToWorld(active_leg.pivot_local);
+            const pivot_world = self.sk_transform.transformLocalToWorld(active_leg.pivot_local);
             const ground_contacts = self.findGroundContacts(pivot_world, best_direction, active_leg.max_length * 1.3, false);
 
             if (ground_contacts.contact_count > 0) {
@@ -630,12 +782,12 @@ pub const Player = struct {
         for (&self.legs) |*leg| {
             leg.contact_age += context.dt;
 
-            leg.pivot_pos_world = sk_transform.transformLocalToWorld(leg.pivot_local);
+            leg.pivot_pos_world = self.sk_transform.transformLocalToWorld(leg.pivot_local);
 
             if (!leg.has_contact) {
                 // Case 1: hanging free in the air
                 const paw_pos_local = leg.pivot_local.add(vec2.init(1, -1).normalize().scale(leg.min_length));
-                leg.paw_pos_world = sk_transform.transformLocalToWorld(paw_pos_local);
+                leg.paw_pos_world = self.sk_transform.transformLocalToWorld(paw_pos_local);
             } else {
                 const contact_transform = Transform2.from_b2(b2.b2Body_GetTransform(leg.contact_body_id));
                 const contact_pos_world = contact_transform.transformLocalToWorld(leg.contact_pos_local);
@@ -661,7 +813,7 @@ pub const Player = struct {
                         if (leg.contact_age < lerp_time) {
                             const t = leg.contact_age / lerp_time;
                             const offset_fn = (-@abs(t - 0.5) + 0.5) * 2.0; // 0..1, peak at t=0.5, zero at t=0 and t=1
-                            const up = sk_transform.rotateLocalToWorld(vec2.init(0, 1));
+                            const up = self.sk_transform.rotateLocalToWorld(vec2.init(0, 1));
                             const offset = up.scale(offset_fn * 0.2);
 
                             leg.paw_pos_world = vec2.lerp(p_prev, p_curr, t).add(offset);
@@ -698,214 +850,169 @@ pub const Player = struct {
         before[3].copyStateTo(&self.legs[1]);
     }
 
-    fn changeState(self: *Self, new_state: State) void {
-        std.log.info("changeState: {s}", .{@tagName(new_state)});
+    fn doJump(self: *Self, dir: vec2, power: f32) void {
+        std.log.info("doJump dir={d:.3} power={d:.3}", .{ dir, power });
 
-        self.state = new_state;
-
-        if (new_state == .Jumping) {
-            self.jump_cooldown = 0.5;
-        } else {
-            self.jump_cooldown = -1.0;
-        }
-
-        self.walk_pid.reset();
-    }
-
-    fn doJump(self: *Self, contact_situation: ContactSituation) void {
-        if (!contact_situation.has_contact) {
-            std.log.err("DoJump: no ground contact", .{});
-            return;
-        }
-
-        const player_velocity = contact_situation.avg_rvel;
         const player_mass = b2.b2Body_GetMass(self.main_body_id);
 
-        // TODO sk_transform not set at this point
-        const jump_dir_world = self.sk_transform.rotateLocalToWorld(vec2.init(1, 1));
+        const vel_to_add = power;
+        const p = player_mass * vel_to_add;
+        const p_vec = dir.normalize().scale(p);
 
-        const target_vel = jump_dir_world.scale(5);
-        const vel_err = target_vel.sub(player_velocity);
-        const p = vel_err.scale(player_mass);
+        var contact_count: usize = 0;
+        for (&self.legs) |*leg| {
+            if (leg.has_contact) {
+                contact_count += 1;
+            }
+        }
 
-        b2.b2Body_ApplyLinearImpulseToCenter(self.main_body_id, p.to_b2(), true);
+        if (contact_count > 0) {
+            const count_f32: f32 = @floatFromInt(contact_count);
+            const impulse_per_contact = p_vec.neg().scale(1 / count_f32);
+
+            // apply to self
+            b2.b2Body_ApplyLinearImpulseToCenter(self.main_body_id, p_vec.to_b2(), true);
+
+            // apply opposite impulse to other bodies
+            for (&self.legs) |*leg| {
+                if (leg.has_contact) {
+                    if (b2.b2Body_GetType(leg.contact_body_id) == b2.b2_dynamicBody) {
+                        b2.b2Body_ApplyLinearImpulseToCenter(leg.contact_body_id, impulse_per_contact.to_b2(), true);
+                    }
+                }
+            }
+        } else {
+            std.log.err("doJump: legs have not ground contact", .{});
+        }
 
         self.total_kcal_burned += 10.0;
     }
 
-    fn updateStanding(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
+    fn simulateJump(self: Self, dir: vec2, power: f32) void {
         //
-        //const player_velocity = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
+        const p0 = vec2.from_b2(b2.b2Body_GetPosition(self.main_body_id));
 
-        const move_input = self.getMoveInputAxis(context.input);
+        const v0_before = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
+        const dv_jump = dir.normalize().scale(power);
+        const v0 = v0_before.add(dv_jump);
 
-        //const ground_contacts = self.findGroundContacts(self.getTransform().pos, vec2.init(0, -1), 1.0, false);
+        const g = vec2.init(0, -9.81);
 
-        // if (ground_contacts.contact_count > 0) {
-        //     self.body_up_target = ground_contacts.avg_normal;
-        // } else {
-        //     self.body_up_target = vec2.init(0, 1);
-        // }
+        const dt: f32 = 0.05;
 
-        // jump?
-        if (context.input.consumeKeyDownEvent(.space)) {
-            self.doJump(contact_situation);
+        var time: f32 = 0;
 
-            self.changeState(.Jumping);
-            return;
-        }
+        for (0..100) |_| {
+            const a = v0.scale(time);
+            const b = g.scale(0.5 * time * time);
 
-        // start walking?
-        if (move_input.len() > 0.1 or contact_situation.avg_rvel.len() > 0.1) {
-            self.changeState(.Walking);
-            return;
+            const p_curr = p0.add(a).add(b);
+            const v_curr = v0.add(g.scale(time));
+
+            if (self.checkJumpCollision(p_curr, v_curr.scale(dt * 1.1))) {
+                break;
+            }
+
+            time += dt;
+
+            engine.Renderer2D.Instance.addPointWithPixelSize(p_curr, 5.0, DebugLayer, Color.red);
         }
     }
 
-    fn updateWalking(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
+    fn checkJumpCollision(self: Self, pos: vec2, translation: vec2) bool {
+        //
+        var query_filter = b2.b2DefaultQueryFilter();
+        query_filter.categoryBits = physics.Categories.Player; // who we are
+        query_filter.maskBits = physics.Categories.Ground | physics.Categories.Vehicle | physics.Categories.Item; // what we want to hit
+
+        const ray_result = b2.b2World_CastRayClosest( // TODO ray cast sphere instead for more accurate results?
+            self.world.world_id,
+            pos.to_b2(),
+            translation.to_b2(),
+            query_filter,
+        );
+
+        return ray_result.hit;
+    }
+
+    fn updateStanding(self: *Self, context: PlayerUpdateContext) void {
+        _ = self;
+        _ = context;
+    }
+
+    fn updateWalking(self: *Self, context: PlayerUpdateContext, force_request: *vec2) void {
+        const contact_situation = context.contact_situation;
+        const move_input = context.input_axis;
+
+        if (!contact_situation.has_contact) {
+            //std.log.err("updateWalking: no ground contact", .{});
+            return;
+        }
+
         //
         const player_position = vec2.from_b2(b2.b2Body_GetPosition(self.main_body_id));
-        //const player_velocity2 = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
         const player_mass = b2.b2Body_GetMass(self.main_body_id);
 
-        if (contact_situation.has_contact) {
-            self.body_up_target = contact_situation.avg_normal;
-        } else {
-            self.body_up_target = vec2.init(0, 1);
-        }
-
-        const move_input = self.getMoveInputAxis(context.input);
-
-        // falling?
-        if (!contact_situation.has_contact) {
-            self.changeState(.Falling);
-            return;
-        }
-
-        // jump?
-        if (context.input.consumeKeyDownEvent(.space)) {
-            self.doJump(contact_situation);
-            self.changeState(.Jumping);
-            return;
-        }
-
-        // return to idle?
-        if (contact_situation.has_contact and contact_situation.avg_rvel.len() < 0.1 and move_input.len() < 0.1) {
-            self.walking_idle_time += context.dt;
-
-            if (self.walking_idle_time > 2.5) {
-                self.walking_idle_time = 0;
-                self.changeState(.Standing);
-                return;
-            }
-        }
-
-        // ...
         const v_n = contact_situation.avg_normal;
-
-        var v_right = v_n.turn90cw();
-        var v_up = v_n;
-
-        var f_total_vec = vec2.zero;
+        const v_right = v_n.turn90cw();
+        const v_up = v_n;
 
         const max_velocity = if (context.input.getKeyState(.left_shift)) self.def.max_run_velocity else self.def.max_walk_velocity;
 
-        //if (horizontal_move_dir.len() > 0.1) {
+        //
         if (true) {
-            //
-            //const proj_vel = player_velocity.dot(v_right);
+            //if (move_input.len() > 0.1) {
+            const f_g = player_mass * 9.81;
+
+            force_request.* = force_request.add(vec2.init(0, f_g));
+            //}
+        }
+
+        // move?
+        if (true) {
             const proj_vel = contact_situation.avg_rvel.dot(v_right);
             const target_vel = move_input.x * max_velocity;
-            //const err_vel = target_vel - proj_vel;
-
-            //self.pid_i_hor += err_vel;
 
             const output = self.walk_pid.update(context.dt, target_vel, proj_vel);
             const acc = output;
 
-            //std.log.info("err_vel {d} pid_i {d}", .{ err_vel, self.pid_i });
-
-            //const acc = err_vel * 50; // + self.pid_i_hor * 1;
             const f = player_mass * acc;
             const f_vec = v_right.scale(f);
 
-            f_total_vec = f_total_vec.add(f_vec);
+            force_request.* = force_request.add(f_vec);
         }
 
         // hold on?
-        //if (context.input.getKeyState(.left_shift)) {
         if (true) {
             const rel_pos = player_position.sub(contact_situation.avg_pos);
             const proj_dist = vec2.dot(contact_situation.avg_normal, rel_pos);
-            const target_dist = self.def.shape_radius;
+            const target_dist = self.def.shape_radius * 1.25;
             const err_dist = target_dist - proj_dist;
 
-            //const proj_vel = vec2.dot(contact_situation.avg_normal, player_velocity);
             const proj_vel = vec2.dot(contact_situation.avg_normal, contact_situation.avg_rvel);
             const target_vel = err_dist * 10.0;
             const err_vel = target_vel - proj_vel;
 
-            //self.pid_i_vert += err_vel;
+            // TODO use PID
 
-            //std.log.info("dist_err {d:.3} vel_err {d:.3} pid_i {d:.3}", .{ err_dist, err_vel, self.pid_i_vert });
-
-            const acc = err_vel * 50; // + self.pid_i_vert * 1;
+            const acc = err_vel * 50;
             const f = player_mass * acc;
             const f_vec = v_up.scale(f);
 
-            f_total_vec = f_total_vec.add(f_vec);
-        }
-
-        // control dist with input?
-        if (false) {
-            //const proj_vel = player_velocity.dot(v_up);
-            const proj_vel = contact_situation.avg_rvel.dot(v_up);
-            const target_vel = move_input.y * max_velocity;
-            const err_vel = target_vel - proj_vel;
-
-            self.pid_i_vert += err_vel;
-
-            //std.log.info("err_vel {d} pid_i {d}", .{ err_vel, self.pid_i });
-
-            const acc = err_vel * 50 + self.pid_i_vert * 1;
-            const f = player_mass * acc;
-            const f_vec = v_up.scale(f);
-
-            f_total_vec = f_total_vec.add(f_vec);
-        }
-
-        if (true) {
-            self.force_request = self.force_request.add(f_total_vec);
+            force_request.* = force_request.add(f_vec);
         }
     }
 
-    fn updateJumping(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
+    fn updateJumping(self: *Self, context: PlayerUpdateContext) void {
         //
-        //_ = self;
-        //_ = context;
-        _ = contact_situation;
-
-        self.jump_cooldown -= context.dt;
-
-        if (self.jump_cooldown < 0.0) {
-            self.changeState(.Falling);
-        }
-    }
-
-    fn updateFalling(self: *Self, context: PlayerUpdateContext, contact_situation: ContactSituation) void {
-        //
-        //_ = contact_situation;
-
-        //
-        //const ground_contacts = self.findGroundContacts(self.getTransform().pos, vec2.init(0, -1), 1.0, false);
-
+        _ = self;
         _ = context;
+    }
 
-        //if (ground_contacts.contact_count > 0) {
-        if (contact_situation.has_contact) {
-            self.changeState(.Walking);
-            return;
-        }
+    fn updateFalling(self: *Self, context: PlayerUpdateContext) void {
+        //
+        _ = self;
+        _ = context;
     }
 
     pub fn getTransform(self: *const Self) Transform2 {
@@ -922,13 +1029,35 @@ pub const Player = struct {
         //_ = position;
     }
 
+    fn getMoveInputAxis(self: *Self, input: *engine.InputState) vec2 {
+        _ = self;
+
+        var x: f32 = 0;
+        var y: f32 = 0;
+
+        if (input.getKeyState(.d)) {
+            x += 1;
+        }
+        if (input.getKeyState(.a)) {
+            x -= 1;
+        }
+        if (input.getKeyState(.w)) {
+            y += 1;
+        }
+        if (input.getKeyState(.s)) {
+            y -= 1;
+        }
+
+        // TODO add gamepad etc
+
+        return vec2.init(x, y);
+    }
+
     const QueryData = struct {
         point: vec2,
         hit: bool,
         body_id: b2.b2BodyId,
-        //player_body_id: b2.b2BodyId, // TODO use filters instead
-        //ignore_body_id: b2.b2BodyId = b2.b2_nullBodyId,
-        exact_hit: bool = true,
+        //exact_hit: bool = true,
     };
 
     // pub const b2OverlapResultFcn = fn (b2ShapeId, ?*anyopaque) callconv(.c) bool;
@@ -942,23 +1071,16 @@ pub const Player = struct {
             return true; // continue
         }
 
-        // if (b2.B2_ID_EQUALS(body_id, query_data.player_body_id)) {
-        //     return true; // continue
-        // }
-        // if (b2.B2_ID_EQUALS(body_id, query_data.ignore_body_id)) {
-        //     return true; // continue
-        // }
-
         const b2point = b2.b2Vec2{
             .x = query_data.point.x,
             .y = query_data.point.y,
         };
 
-        if (!query_data.exact_hit) {
-            query_data.hit = true;
-            query_data.body_id = body_id;
-            return false;
-        }
+        // if (!query_data.exact_hit) {
+        //     query_data.hit = true;
+        //     query_data.body_id = body_id;
+        //     return false;
+        // }
 
         if (b2.b2Shape_TestPoint(shape_id, b2point)) {
             query_data.hit = true;
@@ -1053,29 +1175,24 @@ pub const Player = struct {
                 self.world.world_id,
                 ray_start.to_b2(),
                 ray_translation.to_b2(),
-                //b2.b2DefaultQueryFilter(),
                 query_filter,
             );
 
             if (ray_result.hit) {
-
-                // TODO use distance for score calculation
-
                 const hit_pos_world = vec2.from_b2(ray_result.point);
                 const dist = ray_start.dist(hit_pos_world);
-
-                //std.debug.assert(dist < max_dist); // xxx
 
                 const hit_normal = vec2.from_b2(ray_result.normal);
                 const hit_body_id = b2.b2Shape_GetBody(ray_result.shapeId);
 
                 const closeness_factor = std.math.clamp((ray_length - dist) / ray_length, 0, 1);
-                _ = closeness_factor;
                 // 0..1
                 // 0 = far away
                 // 1 = very close
 
-                const effective_score = angle_factor; // * closeness_factor;
+                //const effective_score = angle_factor * closeness_factor;
+                _ = closeness_factor;
+                const effective_score = angle_factor;
 
                 const hit_pos_local = vec2.from_b2(b2.b2Body_GetLocalPoint(hit_body_id, ray_result.point));
 
@@ -1146,30 +1263,6 @@ pub const Player = struct {
             .contact1 = best_contact1,
             .contact2 = best_contact2,
         };
-    }
-
-    fn getMoveInputAxis(self: *Self, input: *engine.InputState) vec2 {
-        _ = self;
-
-        var x: f32 = 0;
-        var y: f32 = 0;
-
-        if (input.getKeyState(.d)) {
-            x += 1;
-        }
-        if (input.getKeyState(.a)) {
-            x -= 1;
-        }
-        if (input.getKeyState(.w)) {
-            y += 1;
-        }
-        if (input.getKeyState(.s)) {
-            y -= 1;
-        }
-
-        // TODO add gamepad etc
-
-        return vec2.init(x, y);
     }
 
     const ContactSituation = struct {

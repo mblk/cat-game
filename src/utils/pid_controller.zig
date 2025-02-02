@@ -14,10 +14,10 @@ pub fn PIDController(comptime T: type) type {
 
         // pid settings
         kp: T,
-        ki: T,
-        kd: T,
-        integral_min: ?T,
-        integral_max: ?T,
+        ki: T = 0,
+        kd: T = 0,
+        integral_min: ?T = null,
+        integral_max: ?T = null,
         anti_windup: AntiWindupStrategy = .None,
 
         // pid state

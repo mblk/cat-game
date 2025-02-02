@@ -281,11 +281,18 @@ const GameScene = struct {
         self.mouse_diff = mouse_position.sub(self.prev_mouse_position);
         self.prev_mouse_position = mouse_position;
 
+        // xxx
+        if (context.input_state.consumeKeyDownEvent(.t)) {
+            const player: *Player = &self.world.players.items[0];
+            player.teleportTo(mouse_position);
+        }
+        // xxx
+
         // update physics
         if (!is_paused) {
             if (self.world.players.items.len > 0) {
                 const player: *Player = &self.world.players.items[0];
-                player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play, &self.renderer);
+                player.update(context.dt, context.input_state, mouse_position, self.master_mode == .Play);
             }
 
             self.world.update(context.dt, context.per_frame_allocator, context.input_state, &self.renderer);
@@ -412,8 +419,11 @@ const GameScene = struct {
         self.pause_dialog.drawUi();
 
         //
-        zgui.setNextWindowPos(.{ .x = 1600.0, .y = 400.0, .cond = .appearing });
-        zgui.setNextWindowSize(.{ .w = 200, .h = 200 });
+        //zgui.setNextWindowPos(.{ .x = 1600.0, .y = 400.0, .cond = .appearing });
+        zgui.setNextWindowPos(.{ .x = 10.0, .y = 300.0, .cond = .appearing });
+        //zgui.setNextWindowSize(.{ .w = 200, .h = 200 });
+
+        const player = &self.world.players.items[0];
 
         if (zgui.begin("GameScene", .{})) {
             zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
@@ -431,15 +441,21 @@ const GameScene = struct {
                 _ = zgui.sliderAngle("tail", .{ .vrad = &settings.tail_angle });
                 _ = zgui.sliderAngle("head", .{ .vrad = &settings.head_angle });
             }
+
+            if (zgui.collapsingHeader("player", .{})) {
+                _ = zgui.checkbox("show state", .{ .v = &player.debug_show_state });
+                _ = zgui.checkbox("show force", .{ .v = &player.debug_show_force });
+                _ = zgui.checkbox("show leg cast", .{ .v = &player.debug_show_leg_cast });
+                _ = zgui.checkbox("show pid", .{ .v = &player.debug_show_pid });
+            }
         }
         zgui.end();
 
         //xxx
-        if (true) {
-            const player = &self.world.players.items[0];
-
+        if (player.debug_show_pid) {
             player.walk_pid.showUi();
         }
+        //xxx
     }
 
     fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {

@@ -34,7 +34,7 @@ const b2 = zbox.API;
 // TODO remove
 
 pub const WorldRendererSettings = struct {
-    show_player_skeleton: bool = true,
+    show_player_skeleton: bool = false,
 
     tail_angle: f32 = std.math.degreesToRadians(30),
     head_angle: f32 = std.math.degreesToRadians(30),
@@ -526,30 +526,46 @@ pub const WorldRenderer = struct {
         // for (player.legs) |leg| {
         //     self.renderLeg(leg.pivot_pos_world, leg.paw_pos_world, Layers.Player);
         // }
-        self.renderLeg(player.legs[0].pivot_pos_world, player.legs[0].paw_pos_world, Layers.Player - 3);
-        self.renderLeg(player.legs[1].pivot_pos_world, player.legs[1].paw_pos_world, Layers.Player + 3);
-        self.renderLeg(player.legs[2].pivot_pos_world, player.legs[2].paw_pos_world, Layers.Player - 3);
-        self.renderLeg(player.legs[3].pivot_pos_world, player.legs[3].paw_pos_world, Layers.Player + 3);
+
+        var leg_hide_index: ?usize = null;
+
+        if (player.show_hand) {
+            //
+            if (player.orientation_flipped) {
+                //
+                leg_hide_index = 3;
+                self.renderLeg(player.legs[3].pivot_pos_world, player.hand_end, Layers.Player + 3);
+            } else {
+                //
+                leg_hide_index = 3;
+                self.renderLeg(player.legs[3].pivot_pos_world, player.hand_end, Layers.Player + 3);
+            }
+        }
+
+        if (leg_hide_index != 0) self.renderLeg(player.legs[0].pivot_pos_world, player.legs[0].paw_pos_world, Layers.Player - 3);
+        if (leg_hide_index != 1) self.renderLeg(player.legs[1].pivot_pos_world, player.legs[1].paw_pos_world, Layers.Player + 3);
+        if (leg_hide_index != 2) self.renderLeg(player.legs[2].pivot_pos_world, player.legs[2].paw_pos_world, Layers.Player - 3);
+        if (leg_hide_index != 3) self.renderLeg(player.legs[3].pivot_pos_world, player.legs[3].paw_pos_world, Layers.Player + 3);
 
         // ------------
 
-        if (player.show_hand) {
-            const hand_color1 = Color.init(63, 63, 63, 255);
-            const hand_color2 = Color.init(51, 51, 51, 255);
+        // if (player.show_hand) {
+        //     const hand_color1 = Color.init(63, 63, 63, 255);
+        //     const hand_color2 = Color.init(51, 51, 51, 255);
 
-            const hand_dir = vec2.sub(player.hand_end, player.hand_start).normalize();
-            const hand_left = hand_dir.turn90ccw();
+        //     const hand_dir = vec2.sub(player.hand_end, player.hand_start).normalize();
+        //     const hand_left = hand_dir.turn90ccw();
 
-            const p1_left = player.hand_start.add(hand_left.scale(0.05));
-            const p1_right = player.hand_start.add(hand_left.scale(0.05).neg());
+        //     const p1_left = player.hand_start.add(hand_left.scale(0.05));
+        //     const p1_right = player.hand_start.add(hand_left.scale(0.05).neg());
 
-            const p2_left = player.hand_end.add(hand_left.scale(0.05));
-            const p2_right = player.hand_end.add(hand_left.scale(0.05).neg());
+        //     const p2_left = player.hand_end.add(hand_left.scale(0.05));
+        //     const p2_right = player.hand_end.add(hand_left.scale(0.05).neg());
 
-            self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, Layers.Player, hand_color1, self.mat_default);
-            self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, Layers.Player, hand_color1, self.mat_default);
-            self.renderer2D.addSolidCircle(player.hand_end, 0.075, Layers.Player, hand_color2, self.mat_default);
-        }
+        //     self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, Layers.Player, hand_color1, self.mat_default);
+        //     self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, Layers.Player, hand_color1, self.mat_default);
+        //     self.renderer2D.addSolidCircle(player.hand_end, 0.075, Layers.Player, hand_color2, self.mat_default);
+        // }
 
         if (player.show_hint) {
             self.renderer2D.addText(player.hint_position, Layers.Overlay, Color.white, "{s}", .{player.hint_text.?});
@@ -597,11 +613,11 @@ pub const WorldRenderer = struct {
         const dir = paw.sub(pivot).normalize();
         const left = dir.turn90ccw();
 
-        const p1_left = pivot.add(left.scale(0.035));
-        const p1_right = pivot.add(left.scale(0.035).neg());
+        const p1_left = pivot.add(left.scale(0.05));
+        const p1_right = pivot.add(left.scale(0.05).neg());
 
-        const p2_left = paw.add(left.scale(0.035));
-        const p2_right = paw.add(left.scale(0.035).neg());
+        const p2_left = paw.add(left.scale(0.05));
+        const p2_right = paw.add(left.scale(0.05).neg());
 
         self.renderer2D.addTrianglePC([3]vec2{ p1_left, p2_right, p2_left }, layer, color, self.mat_default);
         self.renderer2D.addTrianglePC([3]vec2{ p1_right, p2_right, p1_left }, layer, color, self.mat_default);
