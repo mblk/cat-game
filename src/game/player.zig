@@ -68,6 +68,7 @@ pub const Leg = struct {
     has_contact: bool = false,
     contact_body_id: b2.b2BodyId = b2.b2_nullBodyId, // touched body
     contact_pos_local: vec2 = vec2.zero, // in local space of touched body
+    contact_normal_world: vec2 = vec2.zero, // TODO world space i think
 
     has_prev_contact: bool = false,
     prev_contact_body_id: b2.b2BodyId = b2.b2_nullBodyId, // touched body
@@ -84,6 +85,7 @@ pub const Leg = struct {
         target.has_contact = self.has_contact;
         target.contact_body_id = self.contact_body_id;
         target.contact_pos_local = self.contact_pos_local;
+        target.contact_normal_world = self.contact_normal_world;
 
         target.has_prev_contact = self.has_prev_contact;
         target.prev_contact_body_id = self.prev_contact_body_id;
@@ -292,7 +294,7 @@ pub const Player = struct {
                 self.mouse_joint = b2.b2_nullJointId;
                 self.has_mouse_joint = false;
             }
-            return;
+            //return;
         }
 
         // Step 0: Get basic state
@@ -585,9 +587,11 @@ pub const Player = struct {
                         const drender = engine.Renderer2D.Instance;
 
                         const p1 = context.player_position;
-                        const p2 = p1.add(jump_dir);
+                        const p2 = context.mouse_position; //p1.add(jump_dir);
 
-                        drender.addLine(p1, p2, DebugLayer, Color.red);
+                        drender.addLine(p1, p2, DebugLayer, Color.white);
+                        drender.addText(context.mouse_position, DebugLayer, Color.white, "Jump power: {d:.1} (c to cancel)", .{jump_power});
+
                         self.simulateJump(jump_dir, jump_power);
                     }
 
@@ -657,6 +661,9 @@ pub const Player = struct {
     }
 
     fn applyForceRequest(self: *Self, force_request: vec2) void {
+        //
+        const drender = engine.Renderer2D.Instance;
+
         if (force_request.len() < 0.001) {
             return;
         }
@@ -670,7 +677,7 @@ pub const Player = struct {
 
         if (self.debug_show_force) {
             const player_position = self.getTransform().pos;
-            const drender = engine.Renderer2D.Instance;
+
             drender.addLine(player_position, player_position.add(force_dir), DebugLayer, Color.blue);
             drender.addText(player_position.add(force_dir), DebugLayer, Color.white, "{d:.1}/{d:.1} N", .{ force_len_to_apply, force_request.len() });
         }
@@ -685,16 +692,35 @@ pub const Player = struct {
 
         if (contact_count > 0) {
             const count_f32: f32 = @floatFromInt(contact_count);
+
+            const force_per_self = force_to_apply.scale(1 / count_f32);
             const force_per_contact = force_to_apply.neg().scale(1 / count_f32);
 
-            // apply to self
-            b2.b2Body_ApplyForceToCenter(self.main_body_id, force_to_apply.to_b2(), true);
-
-            // apply opposite force to other bodies
+            // apply opposite force to self and other bodies
             for (&self.legs) |*leg| {
                 if (leg.has_contact) {
+                    //
+                    const contact_pos_world = vec2.from_b2(b2.b2Body_GetWorldPoint(leg.contact_body_id, leg.contact_pos_local.to_b2()));
+                    const gravity_dir = vec2.init(0, -1);
+                    const angle_gravity_normal = std.math.radiansToDegrees(vec2.angleBetween(gravity_dir, leg.contact_normal_world)); // Note: in deg
+
+                    if (false) {
+                        const pp = contact_pos_world.add(leg.contact_normal_world);
+                        drender.addLine(contact_pos_world, pp, DebugLayer, Color.red);
+                        drender.addText(pp, DebugLayer, Color.white, "{d:.1}", .{angle_gravity_normal});
+                    }
+
+                    // don't walk on the ceiling
+                    if (angle_gravity_normal < 85.0) {
+                        continue;
+                    }
+
+                    // apply to self
+                    b2.b2Body_ApplyForceToCenter(self.main_body_id, force_per_self.to_b2(), true);
+
+                    // apply to other body
                     if (b2.b2Body_GetType(leg.contact_body_id) == b2.b2_dynamicBody) {
-                        b2.b2Body_ApplyForceToCenter(leg.contact_body_id, force_per_contact.to_b2(), true); // TODO not at center
+                        b2.b2Body_ApplyForce(leg.contact_body_id, force_per_contact.to_b2(), contact_pos_world.to_b2(), true);
                     }
                 }
             }
@@ -729,15 +755,36 @@ pub const Player = struct {
         var best_direction = vec2.zero;
         best_direction = best_direction.add(player_vel);
         best_direction = best_direction.add(self.sk_transform.rotateLocalToWorld(vec2.init(0, -1)));
+        if (best_direction.len() < 0.01) {
+            // TODO
+            std.log.err("best_direction.len < 0.01", .{});
+            best_direction = best_direction.add(self.sk_transform.rotateLocalToWorld(vec2.init(0, -1)));
+        }
         best_direction = best_direction.normalize();
-
-        // const best_direction = if (player_vel.len() > 0.1)
-        //     player_vel.normalize()
-        // else
-        //     self.sk_transform.rotateLocalToWorld(vec2.init(0, -1));
 
         if (self.debug_show_leg_cast) {
             _ = self.findGroundContacts(self.sk_transform.transformLocalToWorld(self.def.sk_fwd_pivot), best_direction, self.legs[0].max_length, true);
+        }
+
+        // clear legs with invalid body reference (eg. body was destroyed since last frame)
+        for (&self.legs) |*leg| {
+            if (leg.has_contact) {
+                if (!b2.b2Body_IsValid(leg.contact_body_id)) {
+                    std.log.warn("leg contact is no longer valid, resetting ...", .{});
+
+                    leg.has_contact = false;
+                    // TODO clear other stuff as well?
+                }
+            }
+
+            if (leg.has_prev_contact) {
+                if (!b2.b2Body_IsValid(leg.prev_contact_body_id)) {
+                    std.log.warn("prev leg contact is no longer valid, resetting ...", .{});
+
+                    leg.has_prev_contact = false;
+                    // TODO clear other stuff as well?
+                }
+            }
         }
 
         // update leg
@@ -760,6 +807,7 @@ pub const Player = struct {
             active_leg.has_contact = false;
             active_leg.contact_body_id = b2.b2_nullBodyId;
             active_leg.contact_pos_local = vec2.zero;
+            active_leg.contact_normal_world = vec2.zero;
 
             // find new contact point
             const pivot_world = self.sk_transform.transformLocalToWorld(active_leg.pivot_local);
@@ -774,6 +822,7 @@ pub const Player = struct {
                 active_leg.has_contact = true;
                 active_leg.contact_body_id = contact.body_id;
                 active_leg.contact_pos_local = contact.pos_local;
+                active_leg.contact_normal_world = contact.normal;
             }
         }
 
@@ -890,6 +939,8 @@ pub const Player = struct {
 
     fn simulateJump(self: Self, dir: vec2, power: f32) void {
         //
+        const drender = engine.Renderer2D.Instance;
+
         const p0 = vec2.from_b2(b2.b2Body_GetPosition(self.main_body_id));
 
         const v0_before = vec2.from_b2(b2.b2Body_GetLinearVelocity(self.main_body_id));
@@ -902,6 +953,7 @@ pub const Player = struct {
 
         var time: f32 = 0;
 
+        var p_last: ?vec2 = null;
         for (0..100) |_| {
             const a = v0.scale(time);
             const b = g.scale(0.5 * time * time);
@@ -913,9 +965,11 @@ pub const Player = struct {
                 break;
             }
 
-            time += dt;
+            drender.addPointWithPixelSize(p_curr, 5.0, DebugLayer, Color.red);
+            if (p_last) |p| drender.addLine(p, p_curr, DebugLayer, Color.red);
 
-            engine.Renderer2D.Instance.addPointWithPixelSize(p_curr, 5.0, DebugLayer, Color.red);
+            p_last = p_curr;
+            time += dt;
         }
     }
 
