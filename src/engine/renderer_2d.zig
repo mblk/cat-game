@@ -301,6 +301,23 @@ pub const Renderer2D = struct {
         buffer.addVertex(.{ .position = [3]f32{ pos[2].x, pos[2].y, z }, .tex_coord = uv[2] });
     }
 
+    pub fn addTrianglePCU(
+        self: *Self,
+        pos: [3]vec2,
+        uv: [3]vec2,
+        layer: i32,
+        color: Color,
+        material: MaterialRef,
+    ) void {
+        const z = getLayerZ(layer);
+
+        const buffer = self.getBufferForMaterial(material);
+
+        buffer.addVertex(.{ .position = [3]f32{ pos[0].x, pos[0].y, z }, .tex_coord = uv[0], .color = color });
+        buffer.addVertex(.{ .position = [3]f32{ pos[1].x, pos[1].y, z }, .tex_coord = uv[1], .color = color });
+        buffer.addVertex(.{ .position = [3]f32{ pos[2].x, pos[2].y, z }, .tex_coord = uv[2], .color = color });
+    }
+
     pub fn addQuadP(
         self: *Self,
         points: [4]vec2,
@@ -481,19 +498,41 @@ pub const Renderer2D = struct {
         const segments: usize = 32;
         const segment_angle: f32 = 2.0 * std.math.pi / @as(f32, @floatFromInt(segments));
 
+        const uv_center = vec2{ .x = 0.5, .y = 0.5 };
+
         var prev_point = center.add(vec2.init(radius, 0));
+        var prev_uv = vec2{ .x = 1.0, .y = 0.5 };
+
         for (1..segments + 1) |i| {
             const angle = segment_angle * @as(f32, @floatFromInt(i));
-            const point = center.add(vec2{
+
+            const offset = vec2{
                 .x = std.math.cos(angle) * radius,
                 .y = std.math.sin(angle) * radius,
-            });
+            };
+            const point = center.add(offset);
 
-            // TODO calculate UV
+            const uv_point = vec2{
+                .x = 0.5 + (offset.x / (2.0 * radius)),
+                .y = 0.5 + (offset.y / (2.0 * radius)),
+            };
 
-            self.addTrianglePC([3]vec2{ center, prev_point, point }, layer, color, material);
+            const points = [3]vec2{
+                center,
+                prev_point,
+                point,
+            };
+
+            const uvs = [3]vec2{
+                uv_center,
+                prev_uv,
+                uv_point,
+            };
+
+            self.addTrianglePCU(points, uvs, layer, color, material);
 
             prev_point = point;
+            prev_uv = uv_point;
         }
     }
 

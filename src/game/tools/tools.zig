@@ -14,6 +14,7 @@ pub const Tool = struct {
 
 pub const ToolVTable = struct {
     name: []const u8, // XXX doesnt make sense in the vtable... rename to ToolDescriptor?
+    shortcut: engine.InputState.Key,
 
     create: *const fn (allocator: std.mem.Allocator, deps: ToolDeps) anyerror!*anyopaque,
     destroy: *const fn (self_ptr: *anyopaque) void,
@@ -40,6 +41,7 @@ pub const ToolUpdateContext = struct {
     input: *engine.InputState,
     mouse_position: vec2,
     mouse_diff: vec2,
+    world_per_pixel: f32,
 };
 
 pub const ToolRenderContext = struct {

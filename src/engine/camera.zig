@@ -12,6 +12,8 @@ pub const Camera = struct {
     projection: zmath.Mat,
     view: zmath.Mat,
 
+    world_per_pixel: f32,
+
     pub fn create() Camera {
         var camera = Camera{
             .viewport_size = [2]i32{ 600, 600 },
@@ -20,6 +22,7 @@ pub const Camera = struct {
             .offset = vec2.zero,
             .projection = undefined,
             .view = undefined,
+            .world_per_pixel = undefined,
         };
 
         camera.update();
@@ -34,8 +37,7 @@ pub const Camera = struct {
 
         const zoom: f32 = std.math.pow(f32, 1.2, @as(f32, @floatFromInt(self.zoom_level)));
 
-        //const width = 100.0 * zoom; // target x-visibility at 100% zoom
-        const width = 25.0 * zoom; // target x-visibility at 100% zoom
+        const width = 25.0 * zoom; // 25 is x-visibility at 100% zoom
         const height = width / window_ratio;
 
         const near = 0.001;
@@ -46,6 +48,11 @@ pub const Camera = struct {
         const effective_pos = self.focus_position.add(self.offset);
 
         self.view = zmath.translation(-effective_pos.x, -effective_pos.y, 0.0);
+
+        // For picking
+        self.world_per_pixel = width / window_width;
+
+        //std.log.info("world_per_pixel {d}", .{self.world_per_pixel});
     }
 
     pub fn setViewportSize(self: *Camera, size: [2]i32) void {

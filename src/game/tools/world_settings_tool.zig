@@ -36,6 +36,7 @@ pub const WorldSettingsTool = struct {
     pub fn getVTable() ToolVTable {
         return ToolVTable{
             .name = "World settings",
+            .shortcut = .F1,
             .create = Self.create,
             .destroy = Self.destroy,
             .update = Self.update,

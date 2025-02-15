@@ -37,6 +37,7 @@ pub const ItemEditTool = struct {
     pub fn getVTable() ToolVTable {
         return ToolVTable{
             .name = "Item edit",
+            .shortcut = .F4,
             .create = Self.create,
             .destroy = Self.destroy,
             .update = Self.update,

@@ -13,7 +13,9 @@ const Camera = engine.Camera;
 
 const world_ns = @import("../world.zig");
 const World = world_ns.World;
-const GroundSegment = world_ns.GroundSegment;
+
+const ground_segment_ns = @import("../ground_segment.zig");
+const GroundSegment = ground_segment_ns.GroundSegment;
 
 const vehicle_ns = @import("../vehicle.zig");
 const Vehicle = vehicle_ns.Vehicle;
@@ -232,72 +234,111 @@ pub const WorldRenderer = struct {
     }
 
     fn renderGroundSegment(self: *Self, ground_segment: *const GroundSegment) void {
-        const point_count: usize = ground_segment.points.items.len;
+        const tex_scaling = 0.05;
 
-        if (false) {
-            for (0..point_count) |i| {
-                const p1_local = ground_segment.points.items[i];
-                const p2_local = ground_segment.points.items[(i + 1) % point_count];
-
-                const p1_world = ground_segment.position.add(p1_local);
-                const p2_world = ground_segment.position.add(p2_local);
-
-                self.renderer2D.addLine(p1_world, p2_world, Color.white);
-            }
+        // Body not yet created ?
+        if (b2.B2_IS_NULL(ground_segment.body_id)) {
+            return;
         }
 
-        // ----------------------------------------------
+        switch (ground_segment.shape) {
+            //.None => {},
+            .Box => |box| {
+                const box_t = Transform2.from_b2(b2.b2Body_GetTransform(ground_segment.body_id));
 
-        const points: []vec2 = ground_segment.points.items;
+                const box_t2 = Transform2{
+                    .pos = box_t.pos,
+                    .rot = rot2.identity,
+                };
 
-        const count: usize = points.len;
-        const data: [*]const zearcut.vec2 = @ptrCast(points.ptr);
+                const hw = box.width * 0.5;
+                const hh = box.height * 0.5;
+                const box_points = [4]vec2{ // ccw
+                    box_t.transformLocalToWorld(vec2.init(-hw, -hh)),
+                    box_t.transformLocalToWorld(vec2.init(hw, -hh)),
+                    box_t.transformLocalToWorld(vec2.init(hw, hh)),
+                    box_t.transformLocalToWorld(vec2.init(-hw, hh)),
+                };
 
-        const data_slice: []const zearcut.vec2 = data[0..count];
+                const box_uvs = [4]vec2{
+                    box_t2.transformLocalToWorld(vec2.init(-hw, -hh)).scale(tex_scaling),
+                    box_t2.transformLocalToWorld(vec2.init(hw, -hh)).scale(tex_scaling),
+                    box_t2.transformLocalToWorld(vec2.init(hw, hh)).scale(tex_scaling),
+                    box_t2.transformLocalToWorld(vec2.init(-hw, hh)).scale(tex_scaling),
+                };
 
-        var result = zearcut.create(data_slice) catch unreachable;
-        defer result.deinit();
+                self.renderer2D.addQuadPU(box_points, box_uvs, Layers.Ground, self.mat_wood);
+            },
+            .Circle => |circle| {
+                self.renderer2D.addSolidCircle(ground_segment.position, circle.radius, Layers.Ground, Color.white, self.mat_wood);
+            },
+            .Polygon => |polygon| {
 
-        // TODO
-        // - only call when changed + cache result
-        // - static geometry renderer
+                // if (false) {
+                //const point_count: usize = polygon.points.len;
+                //     for (0..point_count) |i| {
+                //         const p1_local = ground_segment.points.items[i];
+                //         const p2_local = ground_segment.points.items[(i + 1) % point_count];
 
-        // ----------------------------------------------
+                //         const p1_world = ground_segment.position.add(p1_local);
+                //         const p2_world = ground_segment.position.add(p2_local);
 
-        var i: usize = 0;
-        while (i < result.indices.len) : (i += 3) {
+                //         self.renderer2D.addLine(p1_world, p2_world, Color.white);
+                //     }
+                // }
 
-            // Note: Earcut output triangles are clockwise.
-            const p1_local = points[result.indices[i]];
-            const p2_local = points[result.indices[i + 1]];
-            const p3_local = points[result.indices[i + 2]];
+                // ----------------------------------------------
 
-            const p1_world = ground_segment.position.add(p1_local);
-            const p2_world = ground_segment.position.add(p2_local);
-            const p3_world = ground_segment.position.add(p3_local);
+                const points: []vec2 = polygon.points;
 
-            const s = 0.05;
+                const count: usize = points.len;
+                const data: [*]const zearcut.vec2 = @ptrCast(points.ptr);
 
-            const p1_uv = vec2.init(
-                p1_world.x * s,
-                p1_world.y * s,
-            );
-            const p2_uv = vec2.init(
-                p2_world.x * s,
-                p2_world.y * s,
-            );
-            const p3_uv = vec2.init(
-                p3_world.x * s,
-                p3_world.y * s,
-            );
+                const data_slice: []const zearcut.vec2 = data[0..count];
 
-            // TODO: order ?
-            self.renderer2D.addTrianglePU(
-                [3]vec2{ p1_world, p2_world, p3_world },
-                [3]vec2{ p1_uv, p2_uv, p3_uv },
-                Layers.Ground,
-                self.mat_wood,
-            );
+                var result = zearcut.create(data_slice) catch unreachable;
+                defer result.deinit();
+
+                // TODO
+                // - only call when changed + cache result
+                // - static geometry renderer
+
+                // ----------------------------------------------
+
+                var i: usize = 0;
+                while (i < result.indices.len) : (i += 3) {
+
+                    // Note: Earcut output triangles are clockwise.
+                    const p1_local = points[result.indices[i]];
+                    const p2_local = points[result.indices[i + 1]];
+                    const p3_local = points[result.indices[i + 2]];
+
+                    const p1_world = ground_segment.position.add(p1_local);
+                    const p2_world = ground_segment.position.add(p2_local);
+                    const p3_world = ground_segment.position.add(p3_local);
+
+                    const p1_uv = vec2.init(
+                        p1_world.x * tex_scaling,
+                        p1_world.y * tex_scaling,
+                    );
+                    const p2_uv = vec2.init(
+                        p2_world.x * tex_scaling,
+                        p2_world.y * tex_scaling,
+                    );
+                    const p3_uv = vec2.init(
+                        p3_world.x * tex_scaling,
+                        p3_world.y * tex_scaling,
+                    );
+
+                    // TODO: order ?
+                    self.renderer2D.addTrianglePU(
+                        [3]vec2{ p1_world, p2_world, p3_world },
+                        [3]vec2{ p1_uv, p2_uv, p3_uv },
+                        Layers.Ground,
+                        self.mat_wood,
+                    );
+                }
+            },
         }
     }
 

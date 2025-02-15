@@ -288,14 +288,14 @@ pub const Player = struct {
         self.show_hint = false;
         self.hint_text = null;
 
-        if (!control_enabled) {
-            if (self.has_mouse_joint) {
-                b2.b2DestroyJoint(self.mouse_joint);
-                self.mouse_joint = b2.b2_nullJointId;
-                self.has_mouse_joint = false;
-            }
-            //return;
-        }
+        // if (!control_enabled) {
+        //     if (self.has_mouse_joint) {
+        //         b2.b2DestroyJoint(self.mouse_joint);
+        //         self.mouse_joint = b2.b2_nullJointId;
+        //         self.has_mouse_joint = false;
+        //     }
+        //     //return;
+        // }
 
         // Step 0: Get basic state
         const player_position = vec2.from_b2(b2.b2Body_GetPosition(self.main_body_id));
@@ -496,6 +496,7 @@ pub const Player = struct {
                                     }
                                 }
                             },
+                            else => {},
                         }
                     }
                 }

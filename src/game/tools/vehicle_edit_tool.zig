@@ -75,6 +75,7 @@ pub const VehicleEditTool = struct {
     pub fn getVTable() ToolVTable {
         return ToolVTable{
             .name = "Vehicle edit",
+            .shortcut = .F3,
             .create = Self.create,
             .destroy = Self.destroy,
             .update = Self.update,

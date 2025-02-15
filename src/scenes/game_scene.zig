@@ -249,12 +249,12 @@ const GameScene = struct {
         const self: *Self = @ptrCast(@alignCast(self_ptr));
 
         // xxx
-        if (context.input_state.consumeKeyDownEvent(.F1)) {
-            self.sim_speed = .Paused;
-        }
-        if (context.input_state.consumeKeyDownEvent(.F2)) {
-            self.sim_speed = .{ .Running = 1.0 };
-        }
+        // if (context.input_state.consumeKeyDownEvent(.F1)) {
+        //     self.sim_speed = .Paused;
+        // }
+        // if (context.input_state.consumeKeyDownEvent(.F2)) {
+        //     self.sim_speed = .{ .Running = 1.0 };
+        // }
         // xxx
 
         const is_paused = self.sim_speed == .Paused or
@@ -262,12 +262,12 @@ const GameScene = struct {
             self.pause_dialog.is_open;
 
         // change mode?
-        if (context.input_state.consumeKeyDownEvent(.F1)) {
-            self.enterPlayMode();
-        }
-        if (context.input_state.consumeKeyDownEvent(.F2)) {
-            self.enterEditMode();
-        }
+        // if (context.input_state.consumeKeyDownEvent(.F1)) {
+        //     self.enterPlayMode();
+        // }
+        // if (context.input_state.consumeKeyDownEvent(.F2)) {
+        //     self.enterEditMode();
+        // }
         if (context.input_state.consumeKeyDownEvent(.tab)) { // TODO tab does not work sometimes?
             self.toggleMasterMode();
         }
@@ -315,6 +315,7 @@ const GameScene = struct {
             .input = context.input_state,
             .mouse_position = mouse_position,
             .mouse_diff = self.mouse_diff,
+            .world_per_pixel = self.camera.world_per_pixel,
         });
 
         // camera movement
@@ -420,10 +421,8 @@ const GameScene = struct {
 
         //
         //zgui.setNextWindowPos(.{ .x = 1600.0, .y = 400.0, .cond = .appearing });
-        zgui.setNextWindowPos(.{ .x = 10.0, .y = 300.0, .cond = .appearing });
+        zgui.setNextWindowPos(.{ .x = 400.0, .y = 50.0, .cond = .appearing });
         //zgui.setNextWindowSize(.{ .w = 200, .h = 200 });
-
-        const player = &self.world.players.items[0];
 
         if (zgui.begin("GameScene", .{})) {
             zgui.text("mouse: {d:.1} {d:.1}", .{ self.mouse_position.x, self.mouse_position.y });
@@ -443,23 +442,39 @@ const GameScene = struct {
             }
 
             if (zgui.collapsingHeader("player", .{})) {
-                _ = zgui.checkbox("show state", .{ .v = &player.debug_show_state });
-                _ = zgui.checkbox("show force", .{ .v = &player.debug_show_force });
-                _ = zgui.checkbox("show leg cast", .{ .v = &player.debug_show_leg_cast });
-                _ = zgui.checkbox("show pid", .{ .v = &player.debug_show_pid });
+                if (self.world.players.items.len > 0) {
+                    const player = &self.world.players.items[0];
+                    _ = zgui.checkbox("show state", .{ .v = &player.debug_show_state });
+                    _ = zgui.checkbox("show force", .{ .v = &player.debug_show_force });
+                    _ = zgui.checkbox("show leg cast", .{ .v = &player.debug_show_leg_cast });
+                    _ = zgui.checkbox("show pid", .{ .v = &player.debug_show_pid });
+                } else {
+                    zgui.text("No players", .{});
+                }
             }
         }
         zgui.end();
 
         //xxx
-        if (player.debug_show_pid) {
-            player.walk_pid.showUi();
+        if (self.world.players.items.len > 0) {
+            const player = &self.world.players.items[0];
+            if (player.debug_show_pid) {
+                player.walk_pid.showUi();
+            }
         }
         //xxx
     }
 
     fn drawEditUi(self: *Self, context: *const engine.DrawUiContext) void {
         // Note: "End and EndChild are special and must be called even if Begin{,Child} returns false."
+
+        //xxx
+        for (self.tool_manager.all_tools.items) |tool_vtable| {
+            if (context.input_state.consumeKeyDownEvent(tool_vtable.shortcut)) {
+                self.tool_manager.select(tool_vtable);
+            }
+        }
+        //xxx
 
         var buffer: [128]u8 = undefined;
 
@@ -497,7 +512,7 @@ const GameScene = struct {
                 }
 
                 for (self.tool_manager.all_tools.items) |tool_vtable| {
-                    const b = std.fmt.bufPrintZ(&buffer, "Tool: {s}", .{tool_vtable.name}) catch unreachable;
+                    const b = std.fmt.bufPrintZ(&buffer, "Tool: {s} ({s})", .{ tool_vtable.name, @tagName(tool_vtable.shortcut) }) catch unreachable;
 
                     var sel = false;
                     if (self.tool_manager.active_tool) |tool| {

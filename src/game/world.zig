@@ -9,16 +9,8 @@ const b2 = zbox.API;
 
 const UserData = @import("user_data.zig").UserData;
 
-pub const GroundSegmentIndex = struct {
-    index: usize,
-};
-
-pub const GroundPointIndex = struct {
-    ground_segment_index: usize,
-    ground_point_index: usize,
-};
-
-pub const GroundSegment = @import("ground_segment.zig").GroundSegment;
+const GroundSegment = @import("ground_segment.zig").GroundSegment;
+const GroundSegmentShape = @import("ground_segment.zig").GroundSegmentShape;
 
 const Vehicle = @import("vehicle.zig").Vehicle;
 const Block = @import("vehicle.zig").Block;
@@ -33,6 +25,7 @@ const Item = item_ns.Item;
 const ItemDef = item_ns.ItemDef;
 
 const refs = @import("refs.zig");
+const GroundSegmentRef = refs.GroundSegmentRef;
 const VehicleRef = refs.VehicleRef;
 const BlockRef = refs.BlockRef;
 const DeviceRef = refs.DeviceRef;
@@ -302,7 +295,7 @@ pub const World = struct {
         }
 
         for (self.ground_segments.items) |*ground_segment| {
-            ground_segment.free();
+            ground_segment.deinit();
         }
 
         self.test_platforms.deinit();
@@ -373,14 +366,13 @@ pub const World = struct {
             self.updateGravity();
         }
 
-        // TODO what to do about start & finish ?
-
         //
         // ground segments changed?
         //
         for (self.ground_segments.items) |*ground_segment| {
-            // TODO: use dirty flag
-            ground_segment.update(temp_allocator);
+            if (ground_segment.dirty) {
+                ground_segment.update(temp_allocator);
+            }
         }
 
         //
@@ -533,14 +525,14 @@ pub const World = struct {
     // ground segments
     //
 
-    pub fn getGroundSegment(self: *World, position: vec2, max_distance: f32) ?GroundSegmentIndex {
-        var closest_idx: ?GroundSegmentIndex = null;
+    pub fn findGroundSegment(self: *World, position: vec2, max_distance: f32) ?GroundSegmentRef {
+        var closest_idx: ?GroundSegmentRef = null;
         var closest_dist = std.math.floatMax(f32);
 
         for (0.., self.ground_segments.items) |ground_segment_index, ground_segment| {
             const dist = vec2.dist(ground_segment.position, position);
             if (dist < max_distance and dist < closest_dist) {
-                closest_idx = GroundSegmentIndex{
+                closest_idx = GroundSegmentRef{
                     .index = ground_segment_index,
                 };
                 closest_dist = dist;
@@ -550,25 +542,33 @@ pub const World = struct {
         return closest_idx;
     }
 
-    pub fn createGroundSegment(self: *World, position: vec2) GroundSegmentIndex {
-        const segment = GroundSegment.create(self.world_id, position, self.allocator);
+    pub fn getGroundSegment(self: *Self, ref: GroundSegmentRef) *GroundSegment {
+        const ground_segment = &self.ground_segments.items[ref.index];
+
+        // TODO check if alive
+
+        return ground_segment;
+    }
+
+    pub fn createGroundSegment(self: *World, position: vec2, shape: GroundSegmentShape) GroundSegmentRef {
+        const segment = GroundSegment.init(self.allocator, self.world_id, position, shape);
         const index = self.ground_segments.items.len;
 
         self.ground_segments.append(segment) catch unreachable;
 
-        return GroundSegmentIndex{
+        return GroundSegmentRef{
             .index = index,
         };
     }
 
-    pub fn deleteGroundSegment(self: *World, index: GroundSegmentIndex) void {
-        var ground_segment = self.ground_segments.orderedRemove(index.index);
+    pub fn deleteGroundSegment(self: *World, ref: GroundSegmentRef) void {
+        var ground_segment = self.ground_segments.orderedRemove(ref.index);
 
-        ground_segment.free();
+        ground_segment.deinit();
     }
 
-    pub fn moveGroundSegment(self: *World, index: GroundSegmentIndex, new_position: vec2) void {
-        const ground_segment = &self.ground_segments.items[index.index];
+    pub fn moveGroundSegment(self: *World, ref: GroundSegmentRef, new_position: vec2) void {
+        const ground_segment = &self.ground_segments.items[ref.index];
         ground_segment.move(new_position);
     }
 
@@ -576,50 +576,58 @@ pub const World = struct {
     // ground points
     //
 
-    pub fn getGroundPoint(self: *World, position: vec2, max_distance: f32) ?GroundPointIndex {
-        var closest: ?GroundPointIndex = null;
-        var closest_dist: f32 = std.math.floatMax(f32);
+    // pub fn getGroundPoint(self: *World, position: vec2, max_distance: f32) ?GroundPointIndex {
+    //     _ = self;
+    //     _ = position;
+    //     _ = max_distance;
 
-        for (0.., self.ground_segments.items) |ground_segment_index, ground_segment| {
-            for (0.., ground_segment.points.items) |ground_point_index, ground_point| {
-                const p = ground_segment.position.add(ground_point);
-                const dist = vec2.dist(p, position);
+    //     std.log.info("world.getGroundPoint not implemented", .{});
 
-                if (dist < max_distance and dist < closest_dist) {
-                    closest_dist = dist;
-                    closest = GroundPointIndex{
-                        .ground_segment_index = ground_segment_index,
-                        .ground_point_index = ground_point_index,
-                    };
-                }
-            }
-        }
+    //     return null;
 
-        return closest;
-    }
+    //     // var closest: ?GroundPointIndex = null;
+    //     // var closest_dist: f32 = std.math.floatMax(f32);
 
-    pub fn createGroundPoint(self: *World, index: GroundPointIndex, position: vec2, is_global: bool) GroundPointIndex {
-        const ground_segment = &self.ground_segments.items[index.ground_segment_index];
+    //     // for (0.., self.ground_segments.items) |ground_segment_index, ground_segment| {
+    //     //     for (0.., ground_segment.points.items) |ground_point_index, ground_point| {
+    //     //         const p = ground_segment.position.add(ground_point);
+    //     //         const dist = vec2.dist(p, position);
 
-        ground_segment.createPoint(index.ground_point_index, position, is_global);
+    //     //         if (dist < max_distance and dist < closest_dist) {
+    //     //             closest_dist = dist;
+    //     //             closest = GroundPointIndex{
+    //     //                 .ground_segment_index = ground_segment_index,
+    //     //                 .ground_point_index = ground_point_index,
+    //     //             };
+    //     //         }
+    //     //     }
+    //     // }
 
-        return GroundPointIndex{
-            .ground_segment_index = index.ground_segment_index,
-            .ground_point_index = index.ground_point_index,
-        };
-    }
+    //     // return closest;
+    // }
 
-    pub fn deleteGroundPoint(self: *World, index: GroundPointIndex) void {
-        const ground_segment = &self.ground_segments.items[index.ground_segment_index];
+    // pub fn createGroundPoint(self: *World, index: GroundPointIndex, position: vec2, is_global: bool) GroundPointIndex {
+    //     const ground_segment = &self.ground_segments.items[index.ground_segment_index];
 
-        ground_segment.destroyPoint(index.ground_point_index);
-    }
+    //     ground_segment.createPoint(index.ground_point_index, position, is_global);
 
-    pub fn moveGroundPoint(self: *World, index: GroundPointIndex, global_position: vec2) void {
-        const ground_segment = &self.ground_segments.items[index.ground_segment_index];
+    //     return GroundPointIndex{
+    //         .ground_segment_index = index.ground_segment_index,
+    //         .ground_point_index = index.ground_point_index,
+    //     };
+    // }
 
-        ground_segment.movePoint(index.ground_point_index, global_position, true);
-    }
+    // pub fn deleteGroundPoint(self: *World, index: GroundPointIndex) void {
+    //     const ground_segment = &self.ground_segments.items[index.ground_segment_index];
+
+    //     ground_segment.destroyPoint(index.ground_point_index);
+    // }
+
+    // pub fn moveGroundPoint(self: *World, index: GroundPointIndex, global_position: vec2) void {
+    //     const ground_segment = &self.ground_segments.items[index.ground_segment_index];
+
+    //     ground_segment.movePoint(index.ground_point_index, global_position, true);
+    // }
 
     //
     // vehicles

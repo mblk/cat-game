@@ -5,7 +5,6 @@ const vec2 = engine.vec2;
 const Transform2 = engine.Transform2;
 
 const World = @import("world.zig").World;
-const GroundPointIndex = @import("world.zig").GroundPointIndex;
 
 const ItemDef = @import("item.zig").ItemDef;
 
@@ -23,9 +22,11 @@ const SettingsData = struct {
     finish_position: vec2,
 };
 
+const GroundSegmentShape = @import("ground_segment.zig").GroundSegmentShape;
+
 const GroundSegmentData = struct {
     position: vec2,
-    points: []vec2,
+    shape: GroundSegmentShape,
 };
 
 const VehicleExporter = @import("vehicle_export.zig").VehicleExporter;
@@ -47,21 +48,11 @@ pub const WorldExporter = struct {
         defer allocator.free(ground_segments_data);
 
         for (0.., world.ground_segments.items) |ground_segment_index, ground_segment| {
-            const ground_points_data = try allocator.alloc(vec2, ground_segment.points.items.len);
-
-            for (0.., ground_segment.points.items) |ground_point_index, ground_point| {
-                ground_points_data[ground_point_index] = ground_point;
-            }
-
             ground_segments_data[ground_segment_index] = GroundSegmentData{
                 .position = ground_segment.position,
-                .points = ground_points_data,
+                .shape = ground_segment.shape,
             };
         }
-
-        defer for (ground_segments_data) |d| {
-            allocator.free(d.points);
-        };
 
         // vehicles
         var vehicles_data = std.ArrayList(VehicleData).init(allocator);
@@ -146,16 +137,11 @@ pub const WorldImporter = struct {
 
         // ground segments
         for (world_data.ground_segments) |segment_data| {
-            const ground_segment_index = world.createGroundSegment(segment_data.position);
 
-            for (0.., segment_data.points) |point_index, point_data| {
-                const ground_point_index = GroundPointIndex{
-                    .ground_segment_index = ground_segment_index.index,
-                    .ground_point_index = point_index,
-                };
+            // must clone shape because world_data is only valid in current scope
+            const shape = segment_data.shape.clone(world.allocator);
 
-                _ = world.createGroundPoint(ground_point_index, point_data, false);
-            }
+            _ = world.createGroundSegment(segment_data.position, shape);
         }
 
         // vehicles

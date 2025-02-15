@@ -152,7 +152,8 @@ pub fn main() !void {
     scene_manager.switchScene(.{
         .Game = .{
             .edit_mode = true,
-            .level_name = "world_1",
+            //.level_name = "world_1",
+            .level_name = "w_0",
             .level_name_alloc = null,
         },
     });

@@ -1,10 +1,23 @@
 const std = @import("std");
 
 pub const Ref = union(enum) {
+    GroundSegment: GroundSegmentRef,
     Vehicle: VehicleRef,
     Block: BlockRef,
     Device: DeviceRef,
     Item: ItemRef,
+};
+
+pub const GroundSegmentRef = struct {
+    index: usize,
+    //version
+
+    pub fn format(self: GroundSegmentRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("GroundSegment(idx={d})", .{self.index});
+    }
 };
 
 pub const VehicleRef = struct {

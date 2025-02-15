@@ -175,7 +175,7 @@ pub const vec2 = packed struct {
 };
 
 pub const rot2 = struct {
-    const identity = rot2{
+    pub const identity = rot2{
         .sin = 0,
         .cos = 1,
     };
